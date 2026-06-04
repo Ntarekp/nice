@@ -8,7 +8,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    strictPort: false, // set true if you want a hard fail when 5173 is taken (kill the other Vite first)
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

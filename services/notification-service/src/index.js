@@ -67,15 +67,46 @@ const templates = {
     `),
   }),
 
-  inspection_scheduled: ({ scheduledDate, extinguisherId, inspectionId }) => ({
-    subject: "Inspection scheduled — TWZ Fire System",
+  inspection_scheduled: ({ scheduledDate, extinguisherId, inspectionId, serialNumber, location }) => ({
+    subject: "Inspection assigned — TWZ Fire System",
     html: brandHtml(`
-      <h2 style="color:#172B4D">Inspection assigned</h2>
+      <h2 style="color:#172B4D">Inspection assigned to you</h2>
+      <p style="color:#44474c">Open the portal to view details and complete the inspection when done.</p>
       <ul style="color:#44474c;line-height:1.8">
         <li><strong>Date:</strong> ${new Date(scheduledDate).toLocaleString()}</li>
-        <li><strong>Extinguisher:</strong> ${extinguisherId}</li>
+        ${serialNumber ? `<li><strong>Serial:</strong> ${serialNumber}</li>` : ""}
+        ${location ? `<li><strong>Location:</strong> ${location}</li>` : ""}
+        ${!serialNumber ? `<li><strong>Extinguisher ID:</strong> ${extinguisherId}</li>` : ""}
         ${inspectionId ? `<li><strong>Inspection ID:</strong> ${inspectionId}</li>` : ""}
       </ul>
+      <p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}/inspections" style="color:#006b5f;font-weight:600">Open Inspections</a></p>
+    `),
+  }),
+
+  inspection_completed: ({
+    serialNumber,
+    location,
+    result,
+    completedDate,
+    inspectorName,
+    inspectorEmail,
+    findings,
+    inspectionId,
+  }) => ({
+    subject: `Inspection completed — ${result || "update"} (${serialNumber || inspectionId})`,
+    html: brandHtml(`
+      <h2 style="color:#172B4D">Inspection completed</h2>
+      <p style="color:#44474c">An inspector has finished a field inspection. Summary below.</p>
+      <ul style="color:#44474c;line-height:1.8">
+        <li><strong>Result:</strong> ${(result || "—").replace(/_/g, " ")}</li>
+        <li><strong>Completed:</strong> ${new Date(completedDate).toLocaleString()}</li>
+        ${serialNumber ? `<li><strong>Serial:</strong> ${serialNumber}</li>` : ""}
+        ${location ? `<li><strong>Location:</strong> ${location}</li>` : ""}
+        <li><strong>Inspector:</strong> ${inspectorName || inspectorEmail || "—"}</li>
+        ${findings ? `<li><strong>Findings:</strong> ${findings}</li>` : ""}
+        ${inspectionId ? `<li><strong>Inspection ID:</strong> ${inspectionId}</li>` : ""}
+      </ul>
+      <p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}/inspections" style="color:#006b5f;font-weight:600">View in admin portal</a></p>
     `),
   }),
 };

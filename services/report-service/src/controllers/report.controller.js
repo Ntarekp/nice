@@ -60,7 +60,11 @@ exports.dashboard = async (req, res) => {
       inspections: {
         total: inspData.length,
         scheduled: inspData.filter((i) => i.status === "scheduled").length,
+        pendingAssignment: inspData.filter(
+          (i) => i.status === "scheduled" && !i.assignedInspector
+        ).length,
         completed: inspData.filter((i) => i.status === "completed").length,
+        inProgress: inspData.filter((i) => i.status === "in_progress").length,
         missed: inspData.filter((i) => i.status === "missed").length,
         today: inspData.filter((i) => new Date(i.scheduledDate) >= dayStart).length,
         thisMonth: inspData.filter((i) => new Date(i.scheduledDate) >= monthStart).length,

@@ -13,6 +13,9 @@ export const useAuthStore = create(
       setLoginPending: (userId, purpose = 'login') =>
         set({ pendingUserId: userId, pendingOtpPurpose: purpose }),
 
+      clearLoginPending: () =>
+        set({ pendingUserId: null, pendingOtpPurpose: 'login' }),
+
       loginSuccess: (user, accessToken, refreshToken) =>
         set({
           user,

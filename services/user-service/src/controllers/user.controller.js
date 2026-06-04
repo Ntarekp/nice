@@ -9,53 +9,78 @@ const sanitizeUser = (user) => {
 };
 
 exports.createUser = async (req, res) => {
-  const { firstName, lastName, email, role, phone, department } = req.body;
+  try {
+    const { firstName, lastName, email, role, phone, department } = req.body;
+    const normalizedEmail = String(email).toLowerCase().trim();
 
-  const existing = await User.findOne({ where: { email: email.toLowerCase() } });
-  if (existing) return res.status(409).json({ error: "Email already registered" });
+    const existing = await User.findOne({ where: { email: normalizedEmail } });
+    if (existing) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
 
-  const tempPassword = generateTempPassword();
-  const hashed = await hashPassword(tempPassword);
+    const tempPassword = generateTempPassword();
+    const hashed = await hashPassword(tempPassword);
 
-  const user = await User.create({
-    firstName,
-    lastName,
-    email: email.toLowerCase(),
-    password: hashed,
-    role: role || "user",
-    phone,
-    department,
-    mustChangePassword: true,
-    isEmailVerified: true,
-  });
+    const user = await User.create({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: normalizedEmail,
+      password: hashed,
+      role: role || "user",
+      phone: phone?.trim() || null,
+      department: department?.trim() || null,
+      mustChangePassword: true,
+      isEmailVerified: true,
+      isActive: true,
+    });
 
-  const mail = await sendNotification("welcome", {
-    email: user.email,
-    name: `${user.firstName} ${user.lastName}`.trim(),
-    tempPassword,
-    role: user.role,
-  });
+    const mail = await sendNotification("welcome", {
+      email: user.email,
+      name: `${user.firstName} ${user.lastName}`.trim(),
+      tempPassword,
+      role: user.role,
+    });
 
-  await AuditLog.create({
-    userId: req.user.sub,
-    action: "USER_CREATED",
-    resource: "users",
-    resourceId: user.id,
-    newValues: { email: user.email, role: user.role, welcomeEmailSent: mail.emailSent !== false },
-  });
+    try {
+      await AuditLog.create({
+        userId: req.user.sub,
+        action: "USER_CREATED",
+        resource: "users",
+        resourceId: user.id,
+        newValues: {
+          email: user.email,
+          role: user.role,
+          welcomeEmailSent: mail.emailSent !== false,
+        },
+      });
+    } catch (logErr) {
+      console.error("[user-service] Audit log failed (user still created):", logErr.message);
+    }
 
-  const emailSent = mail.emailSent !== false;
-  res.status(201).json({
-    message: emailSent
-      ? "User created. Welcome email with temporary password sent."
-      : "User created, but the welcome email could not be sent. Check notification-service logs.",
-    emailSent,
-    emailError: emailSent ? undefined : mail.error,
-    user: sanitizeUser(user),
-    ...(process.env.NODE_ENV !== "production" && mail.devFallback
-      ? { devPasswordHint: tempPassword }
-      : {}),
-  });
+    const emailSent = mail.emailSent !== false;
+    const payload = {
+      message: emailSent
+        ? "User created. Welcome email with temporary password sent."
+        : "User created. Welcome email could not be sent — share the temporary password manually.",
+      emailSent,
+      emailError: emailSent ? undefined : mail.error,
+      user: sanitizeUser(user),
+    };
+
+    if (process.env.NODE_ENV !== "production") {
+      payload.devPasswordHint = mail.devFallback ? mail.tempPassword || tempPassword : tempPassword;
+    }
+
+    return res.status(201).json(payload);
+  } catch (err) {
+    console.error("[user-service] createUser failed:", err.message);
+    if (err.name === "SequelizeValidationError" || err.name === "SequelizeUniqueConstraintError") {
+      return res.status(400).json({
+        error: err.errors?.[0]?.message || "Invalid user data",
+      });
+    }
+    return res.status(500).json({ error: "Failed to create user" });
+  }
 };
 
 exports.listUsers = async (req, res) => {
@@ -66,7 +91,11 @@ exports.listUsers = async (req, res) => {
 
   const where = {};
   if (role) where.role = role;
-  if (isActive !== undefined) where.isActive = isActive === "true";
+  if (isActive !== undefined) {
+    where.isActive = isActive === "true";
+  } else if (req.query.activeOnly !== "false") {
+    where.isActive = true;
+  }
   if (search) {
     where[Op.or] = [
       { firstName: { [Op.iLike]: `%${search}%` } },

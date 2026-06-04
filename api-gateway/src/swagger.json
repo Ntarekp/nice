@@ -3,11 +3,20 @@
   "info": {
     "title": "TWZ Fire Extinguisher Management System API",
     "version": "1.0.0",
-    "description": "Complete RESTful API for fire extinguisher management. Auth uses a 2-step flow: POST /api/auth/login (credentials) → receive userId → POST /api/auth/verify-otp (OTP from email) → receive JWT tokens.",
+    "description": "TWZ Fire Safety REST API (API Gateway :3000). Auth: POST /api/auth/login → POST /api/auth/verify-otp → JWT.\n\n**Inspection workflow**\n1. **User** — POST /api/inspections (request; `assignedInspector` is null).\n2. **Admin** — GET /api/inspections?unassigned=true, then PATCH /api/inspections/{id}/assign → emails inspector (`inspection_scheduled`).\n3. **Inspector** — GET /api/inspections (only assigned rows), GET /api/inspections/{id}, PATCH /api/inspections/{id} with status `in_progress` then `completed` + `result` → emails all active admins (`inspection_completed`).\n4. On completion, equipment `lastInspectionDate` is updated via equipment-service.",
     "contact": { "name": "TWZ Ltd", "email": "support@twzltd.com" }
   },
   "servers": [
-    { "url": "http://localhost:3000", "description": "Local development" }
+    { "url": "http://localhost:3000", "description": "Local development (Swagger UI: /api-docs)" }
+  ],
+  "tags": [
+    { "name": "1. Authentication", "description": "Login, OTP, password reset, tokens" },
+    { "name": "2. User Management", "description": "Admin user CRUD and audit logs" },
+    { "name": "3. Extinguisher Management", "description": "Facility registration; inspector updates" },
+    { "name": "4. Inspections", "description": "Request → admin assign → inspector complete → admin email" },
+    { "name": "5. Maintenance", "description": "Inspector maintenance logs" },
+    { "name": "6. Reports", "description": "Dashboard and exports" },
+    { "name": "7. Notifications", "description": "Email templates (used by services; also callable with auth)" }
   ],
   "components": {
     "securitySchemes": {
@@ -67,19 +76,74 @@
       },
       "Inspection": {
         "type": "object",
+        "description": "Cross-service UUIDs (extinguisher, users) are logical references across PostgreSQL databases.",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
-          "extinguisherId": { "type": "string", "format": "uuid" },
-          "scheduledBy": { "type": "string", "format": "uuid" },
-          "assignedInspector": { "type": "string", "format": "uuid" },
+          "extinguisherId": { "type": "string", "format": "uuid", "description": "equipment_db.extinguishers.id" },
+          "scheduledBy": { "type": "string", "format": "uuid", "description": "users_db.users.id — facility user who requested" },
+          "assignedInspector": { "type": "string", "format": "uuid", "nullable": true, "description": "users_db.users.id — null until admin assigns" },
           "scheduledDate": { "type": "string", "format": "date-time" },
-          "completedDate": { "type": "string", "format": "date-time" },
+          "completedDate": { "type": "string", "format": "date-time", "nullable": true },
           "status": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] },
           "type": { "type": "string", "enum": ["routine","annual","emergency","post_maintenance","compliance"] },
+          "result": { "type": "string", "enum": ["passed","failed","needs_maintenance","decommissioned"], "nullable": true, "description": "Required when status=completed" },
+          "findings": { "type": "string" },
+          "notes": { "type": "string" },
+          "nextInspectionDate": { "type": "string", "format": "date" },
+          "notifiedAt": { "type": "string", "format": "date-time", "description": "Set when assignment email was sent to inspector" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "maintenanceLogs": { "type": "array", "items": { "$ref": "#/components/schemas/MaintenanceLog" }, "description": "Included on GET /api/inspections/{id} only" }
+        }
+      },
+      "AssignInspectorRequest": {
+        "type": "object",
+        "required": ["assignedInspector"],
+        "properties": {
+          "assignedInspector": { "type": "string", "format": "uuid", "description": "Active user with role=inspector" }
+        }
+      },
+      "UpdateInspectionRequest": {
+        "type": "object",
+        "description": "Inspector only. Must be assigned to this inspection. result required when status=completed.",
+        "properties": {
+          "status": { "type": "string", "enum": ["in_progress","completed","missed"], "description": "Typical flow: in_progress → completed" },
           "result": { "type": "string", "enum": ["passed","failed","needs_maintenance","decommissioned"] },
           "findings": { "type": "string" },
           "notes": { "type": "string" },
-          "nextInspectionDate": { "type": "string", "format": "date" }
+          "completedDate": { "type": "string", "format": "date-time" },
+          "nextInspectionDate": { "type": "string", "format": "date", "description": "Also written to extinguisher on completion" }
+        }
+      },
+      "NotificationSendRequest": {
+        "type": "object",
+        "required": ["type", "payload"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["welcome","otp","password_reset","inspection_scheduled","inspection_completed"],
+            "description": "inspection_* types are sent by inspection-service on assign/complete"
+          },
+          "payload": {
+            "type": "object",
+            "required": ["email"],
+            "properties": {
+              "email": { "type": "string", "format": "email" },
+              "name": { "type": "string" },
+              "otp": { "type": "string" },
+              "purpose": { "type": "string" },
+              "scheduledDate": { "type": "string", "format": "date-time" },
+              "extinguisherId": { "type": "string", "format": "uuid" },
+              "inspectionId": { "type": "string", "format": "uuid" },
+              "serialNumber": { "type": "string" },
+              "location": { "type": "string" },
+              "result": { "type": "string" },
+              "completedDate": { "type": "string", "format": "date-time" },
+              "inspectorName": { "type": "string" },
+              "inspectorEmail": { "type": "string", "format": "email" },
+              "findings": { "type": "string" }
+            }
+          }
         }
       },
       "MaintenanceLog": {
@@ -129,8 +193,8 @@
     "/api/auth/login": {
       "post": {
         "tags": ["1. Authentication"],
-        "summary": "Login with credentials",
-        "description": "Validates email+password. Verified users receive JWT tokens. Unverified users receive 403 and a new registration OTP.",
+        "summary": "Login with credentials (step 1)",
+        "description": "Validates email+password. On success, sends login OTP email and returns userId (no tokens yet). Call POST /api/auth/verify-otp with userId + otp.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -143,8 +207,15 @@
           }}}
         },
         "responses": {
-          "200": { "description": "JWT tokens issued (verified user)" },
-          "403": { "description": "Email not verified — OTP resent" },
+          "200": { "description": "OTP sent; returns userId for verify-otp", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string" },
+              "userId": { "type": "string", "format": "uuid" },
+              "devOtpHint": { "type": "string", "description": "Development only when SMTP unavailable" }
+            }
+          }}}},
+          "403": { "description": "Email not verified — registration OTP resent" },
           "400": { "description": "Missing fields", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }}}},
           "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }}}}
         }
@@ -162,7 +233,8 @@
             "type": "object", "required": ["userId","otp"],
             "properties": {
               "userId": { "type": "string", "format": "uuid" },
-              "otp": { "type": "string", "minLength": 6, "maxLength": 6, "example": "482910" }
+              "otp": { "type": "string", "minLength": 6, "maxLength": 6, "example": "482910" },
+              "purpose": { "type": "string", "enum": ["login","register"], "default": "login" }
             }
           }}}
         },
@@ -268,25 +340,51 @@
         "responses": { "200": { "description": "OTP sent if email exists" } }
       }
     },
-    "/api/auth/reset-password": {
+    "/api/auth/verify-reset-otp": {
       "post": {
         "tags": ["1. Authentication"],
-        "summary": "Reset password using OTP",
+        "summary": "Verify password-reset OTP (step 2 of reset)",
+        "description": "After POST /api/auth/forgot-password, submit email + OTP here to receive a short-lived resetToken for POST /api/auth/reset-password.",
         "security": [],
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": {
-            "type": "object", "required": ["email","otp","newPassword"],
+            "type": "object", "required": ["email","otp"],
             "properties": {
               "email": { "type": "string", "format": "email" },
-              "otp": { "type": "string", "minLength": 6, "maxLength": 6 },
+              "otp": { "type": "string", "minLength": 6, "maxLength": 6, "pattern": "^\\d{6}$" }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "resetToken issued", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "resetToken": { "type": "string" }, "message": { "type": "string" } }
+          }}}},
+          "400": { "description": "Invalid or expired OTP" }
+        }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Reset password using resetToken",
+        "description": "Final step after verify-reset-otp. Revokes all refresh tokens.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["email","resetToken","newPassword"],
+            "properties": {
+              "email": { "type": "string", "format": "email" },
+              "resetToken": { "type": "string" },
               "newPassword": { "type": "string", "minLength": 8 }
             }
           }}}
         },
         "responses": {
           "200": { "description": "Password reset. All refresh tokens revoked." },
-          "400": { "description": "Invalid OTP or weak password" }
+          "400": { "description": "Invalid resetToken or weak password" }
         }
       }
     },
@@ -323,8 +421,9 @@
         "parameters": [
           { "in": "query", "name": "page", "schema": { "type": "integer", "default": 1 } },
           { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 20 } },
-          { "in": "query", "name": "role", "schema": { "type": "string", "enum": ["admin","inspector","user"] } },
+          { "in": "query", "name": "role", "schema": { "type": "string", "enum": ["admin","inspector","user"] }, "description": "e.g. inspector when populating assign dropdown" },
           { "in": "query", "name": "isActive", "schema": { "type": "boolean" } },
+          { "in": "query", "name": "activeOnly", "schema": { "type": "string", "enum": ["true","false"], "default": "true" } },
           { "in": "query", "name": "search", "schema": { "type": "string", "description": "Search name or email" } }
         ],
         "responses": {
@@ -404,7 +503,7 @@
     "/api/extinguishers": {
       "post": {
         "tags": ["3. Extinguisher Management"],
-        "summary": "Register new extinguisher (Admin/Inspector)",
+        "summary": "Register new extinguisher (Facility user only)",
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": {
@@ -472,6 +571,21 @@
         }
       }
     },
+    "/api/extinguishers/lookup/{serialNumber}": {
+      "get": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Look up extinguisher by serial number",
+        "description": "Used by inspectors in the field before starting an inspection. Admin/inspector see all; users only their own equipment.",
+        "parameters": [
+          { "in": "path", "name": "serialNumber", "required": true, "schema": { "type": "string" }, "example": "TWZ-KGL-001" }
+        ],
+        "responses": {
+          "200": { "description": "Extinguisher found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Extinguisher" } }}},
+          "403": { "description": "Access denied" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
     "/api/extinguishers/{id}": {
       "get": {
         "tags": ["3. Extinguisher Management"],
@@ -515,37 +629,41 @@
     "/api/inspections": {
       "post": {
         "tags": ["4. Inspections"],
-        "summary": "Schedule an inspection (Admin/Inspector/User)",
-        "description": "Creates an inspection record and notifies assigned inspector by email.",
+        "summary": "Request an inspection (Facility user only)",
+        "description": "Creates status=scheduled with assignedInspector=null. Admin must assign an inspector before field work. Does not email anyone until assignment.",
         "requestBody": {
           "required": true,
           "content": { "application/json": { "schema": {
             "type": "object", "required": ["extinguisherId","scheduledDate"],
             "properties": {
               "extinguisherId": { "type": "string", "format": "uuid" },
-              "scheduledDate": { "type": "string", "format": "date-time" },
+              "scheduledDate": { "type": "string", "format": "date-time", "example": "2026-07-01T09:00:00.000Z" },
               "type": { "type": "string", "enum": ["routine","annual","emergency","post_maintenance","compliance"], "default": "routine" },
-              "assignedInspector": { "type": "string", "format": "uuid" },
               "notes": { "type": "string" }
             }
           }}}
         },
         "responses": {
-          "201": { "description": "Inspection scheduled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
-          "404": { "description": "Extinguisher not found" }
+          "201": { "description": "Inspection requested (awaiting admin assignment)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
+          "403": { "description": "Only facility users can request inspections" },
+          "404": { "description": "Extinguisher not found" },
+          "422": { "description": "Validation error" }
         }
       },
       "get": {
         "tags": ["4. Inspections"],
-        "summary": "List inspections (paginated). Inspectors see only their own.",
+        "summary": "List inspections (role-scoped, paginated)",
+        "description": "**Admin** — all inspections. **Inspector** — only where assignedInspector = self. **User** — only where scheduledBy = self. Use unassigned=true (admin) for assignment queue.",
         "parameters": [
-          { "in": "query", "name": "page", "schema": { "type": "integer" } },
-          { "in": "query", "name": "limit", "schema": { "type": "integer" } },
+          { "in": "query", "name": "page", "schema": { "type": "integer", "default": 1 } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 20 } },
           { "in": "query", "name": "status", "schema": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] } },
-          { "in": "query", "name": "type", "schema": { "type": "string" } },
+          { "in": "query", "name": "type", "schema": { "type": "string", "enum": ["routine","annual","emergency","post_maintenance","compliance"] } },
           { "in": "query", "name": "extinguisherId", "schema": { "type": "string", "format": "uuid" } },
-          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date", "description": "Filter by scheduled date from" } },
-          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date", "description": "Filter by scheduled date to" } }
+          { "in": "query", "name": "unassigned", "schema": { "type": "string", "enum": ["true"], "description": "Admin only: scheduled + no inspector" } },
+          { "in": "query", "name": "ownerId", "schema": { "type": "string", "format": "uuid", "description": "Admin only: filter by scheduledBy user id" } },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date", "description": "scheduledDate >= from" } },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date", "description": "scheduledDate <= to" } }
         ],
         "responses": {
           "200": { "description": "Paginated inspections", "content": { "application/json": { "schema": {
@@ -554,35 +672,57 @@
               "data": { "type": "array", "items": { "$ref": "#/components/schemas/Inspection" } },
               "pagination": { "$ref": "#/components/schemas/Pagination" }
             }
-          }}}}
+          }}}},
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/api/inspections/{id}/assign": {
+      "patch": {
+        "tags": ["4. Inspections"],
+        "summary": "Assign inspector (Admin only)",
+        "description": "Sets assignedInspector on a scheduled/in_progress inspection. Sends **inspection_scheduled** email to the inspector (serial, location, date). Sets notifiedAt on success.",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssignInspectorRequest" } }}
+        },
+        "responses": {
+          "200": { "description": "Inspector assigned", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
+          "400": { "description": "Invalid inspector or inspection state" },
+          "403": { "description": "Admin only" },
+          "404": { "description": "Inspection not found" },
+          "422": { "description": "Validation error" }
         }
       }
     },
     "/api/inspections/{id}": {
       "get": {
         "tags": ["4. Inspections"],
-        "summary": "Get inspection by ID (includes maintenance logs)",
+        "summary": "Get inspection by ID",
+        "description": "Includes nested maintenanceLogs. **Inspector** — only if assigned to them. **User** — only their own requests. **Admin** — any.",
         "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Inspection with nested maintenance logs" }, "404": { "description": "Not found" } }
+        "responses": {
+          "200": { "description": "Inspection detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
+          "403": { "description": "Not assigned to you / not your request" },
+          "404": { "description": "Not found" }
+        }
       },
       "patch": {
         "tags": ["4. Inspections"],
-        "summary": "Update inspection — log result (Inspector logs completion)",
+        "summary": "Update inspection — start or complete (Inspector only)",
+        "description": "Inspector must be assignedInspector for this record. Typical flow: `{ \"status\": \"in_progress\" }` then `{ \"status\": \"completed\", \"result\": \"passed\", \"findings\": \"...\" }`. On **completed**: updates extinguisher lastInspectionDate; sends **inspection_completed** email to every active admin (users_db) plus ADMIN_SMTP.",
         "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": {
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "status": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] },
-              "result": { "type": "string", "enum": ["passed","failed","needs_maintenance","decommissioned"] },
-              "findings": { "type": "string" },
-              "notes": { "type": "string" },
-              "completedDate": { "type": "string", "format": "date-time" },
-              "nextInspectionDate": { "type": "string", "format": "date" }
-            }
-          }}}
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateInspectionRequest" } }}
         },
-        "responses": { "200": { "description": "Updated inspection" } }
+        "responses": {
+          "200": { "description": "Updated inspection", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
+          "400": { "description": "result required when status=completed" },
+          "403": { "description": "Inspector only / not assigned to you" },
+          "404": { "description": "Not found" }
+        }
       }
     },
     "/api/maintenance": {
@@ -662,6 +802,49 @@
         "responses": {
           "200": { "description": "File download", "content": { "application/pdf": {}, "text/csv": {} } },
           "400": { "description": "Invalid type or format" }
+        }
+      }
+    },
+    "/api/notifications/send": {
+      "post": {
+        "tags": ["7. Notifications"],
+        "summary": "Send templated email",
+        "description": "Proxied to notification-service. Inspection-service calls this internally on assign (inspection_scheduled) and complete (inspection_completed). Requires SMTP_* env on notification-service.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NotificationSendRequest" } }}
+        },
+        "responses": {
+          "200": { "description": "Email sent (or dev fallback for OTP types)", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "success": { "type": "boolean" },
+              "emailSent": { "type": "boolean" },
+              "devFallback": { "type": "boolean" }
+            }
+          }}}},
+          "400": { "description": "Unknown type or missing email" },
+          "503": { "description": "SMTP not configured" }
+        }
+      }
+    },
+    "/api/notifications/smtp-status": {
+      "get": {
+        "tags": ["7. Notifications"],
+        "summary": "Check SMTP configuration",
+        "description": "Health check for email delivery (assign/complete notifications depend on this).",
+        "security": [],
+        "responses": {
+          "200": { "description": "SMTP status", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "configured": { "type": "boolean" },
+              "verified": { "type": "boolean" },
+              "host": { "type": "string" },
+              "error": { "type": "string" }
+            }
+          }}}}
         }
       }
     }

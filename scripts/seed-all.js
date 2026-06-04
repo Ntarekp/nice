@@ -15,30 +15,24 @@ dotenv.config({ path: path.join(__dirname, "../.env") });
 const DEMO_PASSWORD = "Test@1234!";
 const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL || "http://localhost:3005";
 
+const ADMIN_EMAIL = "benmu91@gmail.com";
+
 const TEST_USERS = [
-  {
-    firstName: "Jean Bosco",
-    lastName: "Uwimana",
-    email: "ukemuk1@gmail.com",
-    role: "inspector",
-    phone: "+250788111001",
-    department: "Field Inspections — Kigali",
-  },
   {
     firstName: "Marie Chantal",
     lastName: "Mukamazimpaka",
     email: "cabledie@gmail.com",
-    role: "user",
+    role: "inspector",
     phone: "+250789222002",
-    department: "Facilities — Nyarugenge",
+    department: "Field Inspections — Kigali",
   },
   {
     firstName: "Patrick",
     lastName: "Niyonsenga",
     email: "devroom210@gmail.com",
-    role: "admin",
+    role: "user",
     phone: "+250787333003",
-    department: "Operations — Gasabo",
+    department: "Facilities — Gasabo",
   },
 ];
 
@@ -150,25 +144,47 @@ async function seedUsers() {
   const hashed = await hashPassword(DEMO_PASSWORD);
   const created = {};
 
-  let admin = await User.findOne({ where: { email: "admin@twzltd.com" } });
+  let admin = await User.findOne({ where: { email: ADMIN_EMAIL } });
   if (!admin) {
-    admin = await User.create({
-      firstName: "System",
-      lastName: "Admin",
-      email: "admin@twzltd.com",
-      password: hashed,
+    const legacy = await User.findOne({ where: { email: "admin@twzltd.com" } });
+    if (legacy) {
+      await legacy.update({
+        email: ADMIN_EMAIL,
+        firstName: "Ben",
+        lastName: "Admin",
+        role: "admin",
+        mustChangePassword: false,
+        isEmailVerified: true,
+        isActive: true,
+      });
+      admin = legacy;
+      console.log(`Migrated admin → ${ADMIN_EMAIL}`);
+    } else {
+      admin = await User.create({
+        firstName: "Ben",
+        lastName: "Admin",
+        email: ADMIN_EMAIL,
+        password: hashed,
+        role: "admin",
+        phone: "+250788000000",
+        department: "TWZ HQ — Kigali",
+        mustChangePassword: false,
+        isEmailVerified: true,
+      });
+      console.log(`Created admin: ${ADMIN_EMAIL}`);
+      await sendWelcome(admin.email, admin.firstName, admin.role);
+    }
+  } else {
+    await admin.update({
       role: "admin",
-      phone: "+250788000000",
-      department: "TWZ HQ — Kigali",
       mustChangePassword: false,
       isEmailVerified: true,
+      isActive: true,
     });
-    console.log("Created admin@twzltd.com");
-    await sendWelcome(admin.email, admin.firstName, admin.role);
-  } else {
     console.log("Admin exists:", admin.email);
   }
   created.admin = admin;
+  created[ADMIN_EMAIL] = admin;
 
   for (const u of TEST_USERS) {
     let user = await User.findOne({ where: { email: u.email.toLowerCase() } });
@@ -245,8 +261,8 @@ async function seedInspections(users, extinguishers) {
   await sequelize.authenticate();
   await sequelize.sync({ alter: true });
 
-  const inspector = users["ukemuk1@gmail.com"];
-  const scheduler = users["cabledie@gmail.com"] || users.admin;
+  const inspector = users["cabledie@gmail.com"];
+  const scheduler = users["devroom210@gmail.com"] || users.admin;
   const ext1 = extinguishers[0];
   const ext2 = extinguishers[1];
 
@@ -258,11 +274,11 @@ async function seedInspections(users, extinguishers) {
       const insp = await Inspection.create({
         extinguisherId: ext1.id,
         scheduledBy: scheduler.id,
-        assignedInspector: inspector.id,
+        assignedInspector: null,
         scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         type: "routine",
         status: "scheduled",
-        notes: "Quarterly inspection — Kigali City Tower",
+        notes: "Quarterly inspection — Kigali City Tower (awaiting admin assignment)",
       });
       console.log(`Created inspection: ${insp.id}`);
       try {
@@ -318,17 +334,41 @@ async function seedInspections(users, extinguishers) {
   await sequelize.close();
 }
 
+async function cleanupDemoUsers() {
+  const { User } = require("../services/user-service/src/models");
+  const { Op } = require(path.join(userModules, "sequelize"));
+  const keep = [
+    ADMIN_EMAIL.toLowerCase(),
+    ...TEST_USERS.map((u) => u.email.toLowerCase()),
+  ];
+  const stale = await User.findAll({
+    where: { isActive: true, email: { [Op.notIn]: keep } },
+  });
+  for (const u of stale) {
+    await u.update({ isActive: false });
+    console.log(`Deactivated demo account: ${u.email}`);
+  }
+  for (const legacy of ["admin@twzltd.com", "ukemuk1@gmail.com"]) {
+    const row = await User.findOne({ where: { email: legacy } });
+    if (row?.isActive) {
+      await row.update({ isActive: false });
+      console.log(`Deactivated legacy account: ${row.email}`);
+    }
+  }
+}
+
 async function main() {
   console.log("\n══ TWZ Fire System — Seed Demo Data ══\n");
   const users = await seedUsers();
   console.log("\n── Equipment ──\n");
-  const facilityUser = users["cabledie@gmail.com"] || users.admin;
+  const facilityUser = users["devroom210@gmail.com"] || users.admin;
   const extinguishers = await seedEquipment(facilityUser);
   console.log("\n── Inspections & Maintenance ──\n");
   await seedInspections(users, extinguishers);
+  await cleanupDemoUsers();
   console.log("\n✔ Seed complete.");
   console.log("\nTest accounts (password: Test@1234!):");
-  console.log("  admin@twzltd.com");
+  console.log(`  ${ADMIN_EMAIL} (admin)`);
   TEST_USERS.forEach((u) => console.log(`  ${u.email} (${u.role})`));
   console.log("");
 }

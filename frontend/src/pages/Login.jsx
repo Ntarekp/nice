@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth.store'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
@@ -7,15 +7,20 @@ import MaterialIcon from '../components/MaterialIcon'
 import { LOGIN_ILLUSTRATION } from '../lib/designAssets'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const location = useLocation()
+  const [email, setEmail] = useState(() => location.state?.email || '')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const { setLoginPending } = useAuthStore()
+  const { setLoginPending, token } = useAuthStore()
   const navigate = useNavigate()
 
   const handleLogin = async (e) => {
     e.preventDefault()
+    if (token) {
+      navigate('/dashboard', { replace: true })
+      return
+    }
     setLoading(true)
     try {
       await api.post('/api/auth/login', { email, password })
@@ -31,7 +36,8 @@ export default function LoginPage() {
             : 'Verification code sent to your email'
         )
         if (import.meta.env.DEV && body.devOtpHint) {
-          console.info('[dev] OTP for', email, ':', body.devOtpHint)
+          console.info('[dev] Login OTP for', email, ':', body.devOtpHint)
+          toast(`Dev code: ${body.devOtpHint}`, { icon: '🔑', duration: 20000 })
         }
         navigate('/otp', {
           state: {
@@ -61,34 +67,7 @@ export default function LoginPage() {
           aria-label="Commercial facilities safety illustration"
         />
         <div className="absolute inset-0 z-10 bg-gradient-to-br from-primary-container/80 to-surface-tint/60" />
-        <div className="glass-panel relative z-20 w-full max-w-md rounded-xl border border-border-ice/20 p-8 shadow-lg">
-          <div className="mb-4 flex items-center gap-2">
-            <MaterialIcon name="shield" size={24} fill className="text-secondary-container" />
-            <span className="text-label-caps uppercase tracking-widest text-surface-white">
-              System Status
-            </span>
-          </div>
-          <h2 className="mb-2 text-headline-md text-surface-white">All Facilities Secure</h2>
-          <p className="mb-6 text-sm text-inverse-on-surface opacity-80">
-            Global Command Center is actively monitoring compliance checkpoints across your regions.
-          </p>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between rounded-lg bg-surface-container-lowest/10 p-2">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-secondary-container" />
-                <span className="text-sm text-surface-white">Network Integrity</span>
-              </div>
-              <span className="text-sm font-semibold text-surface-white">100%</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-surface-container-lowest/10 p-2">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-secondary-container" />
-                <span className="text-sm text-surface-white">Active Inspections</span>
-              </div>
-              <span className="text-sm font-semibold text-surface-white">24</span>
-            </div>
-          </div>
-        </div>
+        
       </div>
 
       <div className="relative flex w-full items-center justify-center bg-surface-bright px-5 lg:w-1/2 lg:px-10">

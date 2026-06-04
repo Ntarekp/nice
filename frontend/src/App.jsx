@@ -25,11 +25,18 @@ const ProtectedRoute = ({ children, roles }) => {
   return children
 }
 
+/** Signed-in users should not hit login/OTP (avoids sending a new login code while on the dashboard). */
+const GuestOnly = ({ children }) => {
+  const token = useAuthStore((s) => s.token)
+  if (token) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/otp" element={<OtpPage />} />
+      <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
+      <Route path="/otp" element={<GuestOnly><OtpPage /></GuestOnly>} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/change-password" element={<ChangePasswordPage />} />

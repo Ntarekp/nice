@@ -9,14 +9,15 @@ export default function OtpPage() {
   const [digits, setDigits] = useState(['', '', '', '', '', ''])
   const [loading, setLoading] = useState(false)
   const refs = useRef([])
-  const { pendingUserId, pendingOtpPurpose, loginSuccess } = useAuthStore()
+  const { pendingUserId, pendingOtpPurpose, token, loginSuccess } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
   const purpose = location.state?.purpose || pendingOtpPurpose || 'login'
 
+  // Redirect if session missing (GuestOnly handles already-signed-in users).
   useEffect(() => {
-    if (!pendingUserId) navigate('/login')
-  }, [pendingUserId, navigate])
+    if (!pendingUserId && !token) navigate('/login', { replace: true })
+  }, [pendingUserId, token, navigate])
 
   const handleChange = (i, val) => {
     if (!/^\d?$/.test(val)) return

@@ -11,6 +11,8 @@ app.use(express.json({ limit: '10kb' }));
 
 const authRoutes = require("./routes/auth.routes");
 const userRoutes = require("./routes/user.routes");
+const internalRoutes = require("./routes/internal.routes");
+app.use("/api/internal", internalRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 

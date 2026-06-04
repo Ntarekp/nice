@@ -1,7 +1,10 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth.store'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+// In dev, use Vite proxy (/api → :3000) so any frontend port (5173, 5174, …) works without CORS issues.
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? '' : 'http://localhost:3000')
 
 export const api = axios.create({ baseURL: API_URL, timeout: 15000 })
 

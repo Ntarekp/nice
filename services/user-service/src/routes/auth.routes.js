@@ -68,10 +68,20 @@ router.post(
 );
 
 router.post(
-  "/reset-password",
+  "/verify-reset-otp",
   [
     body("email").isEmail().normalizeEmail(),
     body("otp").trim().isLength({ min: 6, max: 6 }).matches(/^\d{6}$/),
+  ],
+  validate,
+  ctrl.verifyResetOtp
+);
+
+router.post(
+  "/reset-password",
+  [
+    body("email").isEmail().normalizeEmail(),
+    body("resetToken").notEmpty().isString(),
     body("newPassword").isLength({ min: 8 }),
   ],
   validate,

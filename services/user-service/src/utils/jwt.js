@@ -17,4 +17,26 @@ const generateTokens = (user) => {
 const verifyAccess  = (token) => jwt.verify(token, process.env.JWT_SECRET);
 const verifyRefresh = (token) => jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 
-module.exports = { generateTokens, verifyAccess, verifyRefresh };
+/** Short-lived token after reset OTP is verified — used only for POST /reset-password */
+const generateResetToken = (userId) =>
+  jwt.sign(
+    { sub: userId, purpose: "password_reset" },
+    process.env.JWT_SECRET,
+    { expiresIn: "15m" }
+  );
+
+const verifyResetToken = (token) => {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  if (decoded.purpose !== "password_reset") {
+    throw new Error("Invalid reset token");
+  }
+  return decoded;
+};
+
+module.exports = {
+  generateTokens,
+  generateResetToken,
+  verifyAccess,
+  verifyRefresh,
+  verifyResetToken,
+};

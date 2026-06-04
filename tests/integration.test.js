@@ -12,7 +12,7 @@ const EQUIPMENT_URL = process.env.EQUIPMENT_URL || "http://localhost:3002";
 const INSPECTION_URL = process.env.INSPECTION_URL || "http://localhost:3003";
 const REPORT_URL = process.env.REPORT_URL || "http://localhost:3004";
 
-const TEST_EMAIL = process.env.TEST_EMAIL || "ukemuk1@gmail.com";
+const TEST_EMAIL = process.env.TEST_EMAIL || "cabledie@gmail.com";
 const TEST_PASSWORD = process.env.TEST_PASSWORD || "Test@1234!";
 
 let accessToken;
@@ -171,7 +171,7 @@ describe("TWZ Fire System — Phase 2/3 Integration", () => {
     const session = await login();
     if (session.user.role !== "admin") {
       const prevEmail = TEST_EMAIL;
-      process.env.TEST_EMAIL = "devroom210@gmail.com";
+      process.env.TEST_EMAIL = "benmu91@gmail.com";
       await login();
       process.env.TEST_EMAIL = prevEmail;
     }
@@ -180,7 +180,7 @@ describe("TWZ Fire System — Phase 2/3 Integration", () => {
         headers: auth(),
         params: { page: 1, limit: 20 },
       });
-      assert.ok(data.data.some((u) => u.email === "ukemuk1@gmail.com"));
+      assert.ok(data.data.some((u) => u.email === "cabledie@gmail.com"));
     } catch (e) {
       if (e.response?.status === 403) return;
       throw e;

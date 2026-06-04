@@ -15,9 +15,15 @@ const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",");
+const isLocalDevOrigin = (origin) =>
+  process.env.NODE_ENV !== "production" &&
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    if (!origin || allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
+      return cb(null, true);
+    }
     cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
@@ -70,7 +76,8 @@ app.use("/api/auth/login",   authLimiter);
 app.use("/api/auth/verify-otp", otpLimiter);
 app.use("/api/auth/register",   authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
-app.use("/api/auth/reset-password", otpLimiter);
+app.use("/api/auth/verify-reset-otp", otpLimiter);
+app.use("/api/auth/reset-password", authLimiter);
 
 const userService = process.env.USER_SERVICE_URL || "http://localhost:3001";
 app.use(proxy(userService, "/api/auth"));

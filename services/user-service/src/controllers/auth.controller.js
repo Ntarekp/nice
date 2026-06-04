@@ -1,6 +1,11 @@
 const axios = require("axios");
 const { User, RefreshToken, AuditLog } = require("../models");
-const { generateTokens, verifyRefresh } = require("../utils/jwt");
+const {
+  generateTokens,
+  generateResetToken,
+  verifyRefresh,
+  verifyResetToken,
+} = require("../utils/jwt");
 const {
   hashPassword,
   comparePassword,
@@ -147,23 +152,16 @@ exports.login = async (req, res) => {
 
   const otpPurpose = user.isEmailVerified ? "login" : "register";
   const otp = await storeOTP(user.id, otpPurpose);
-  let mail = { emailSent: false };
-  try {
-    mail = await sendNotification(
-      "otp",
-      {
-        email: user.email,
-        name: user.firstName,
-        otp,
-        purpose: user.isEmailVerified ? "sign in" : "account verification",
-      },
-      { required: true }
-    );
-  } catch (e) {
-    return res.status(e.status || 503).json({
-      error: e.message || "Could not send verification email",
-    });
-  }
+  const mail = await sendNotification(
+    "otp",
+    {
+      email: user.email,
+      name: user.firstName,
+      otp,
+      purpose: user.isEmailVerified ? "sign in" : "account verification",
+    },
+    { required: false }
+  );
 
   await AuditLog.create({
     userId: user.id,
@@ -182,8 +180,8 @@ exports.login = async (req, res) => {
     mustChangePassword: user.mustChangePassword,
   };
 
-  if (process.env.NODE_ENV !== "production" && mail.devFallback && mail.otp) {
-    payload.devOtpHint = mail.otp;
+  if (process.env.NODE_ENV !== "production") {
+    payload.devOtpHint = mail.otp || otp;
   }
 
   return res.status(403).json(payload);
@@ -344,13 +342,19 @@ exports.forgotPassword = async (req, res) => {
   const normalizedEmail = req.body.email?.toLowerCase();
   const user = await User.findOne({ where: { email: normalizedEmail } });
 
+  let devOtpHint;
+  let emailSent = false;
   if (user && user.isActive && user.isEmailVerified) {
     const otp = await storeOTP(user.id, "reset");
-    await sendNotification("password_reset", {
+    const mail = await sendNotification("password_reset", {
       email: user.email,
       name: user.firstName,
       otp,
     });
+    emailSent = mail.emailSent !== false;
+    if (process.env.NODE_ENV !== "production") {
+      devOtpHint = mail.otp || otp;
+    }
     await AuditLog.create({
       userId: user.id,
       action: "PASSWORD_RESET_REQUESTED",
@@ -360,24 +364,66 @@ exports.forgotPassword = async (req, res) => {
     });
   }
 
-  res.json({
-    message: "If that email exists, a reset OTP has been sent",
-  });
+  const body = {
+    message:
+      "If an account matches this email, a password reset code has been sent.",
+    emailSent: emailSent || undefined,
+  };
+  if (devOtpHint) body.devOtpHint = devOtpHint;
+  res.json(body);
 };
 
-// POST /api/auth/reset-password
-exports.resetPassword = async (req, res) => {
+// POST /api/auth/verify-reset-otp — consumes one-time reset code; returns short-lived resetToken
+exports.verifyResetOtp = async (req, res) => {
   const normalizedEmail = req.body.email?.toLowerCase();
-  const { otp, newPassword } = req.body;
+  const { otp } = req.body;
 
   const user = await User.findOne({ where: { email: normalizedEmail } });
-  if (!user || !user.isActive) {
-    return res.status(400).json({ error: "Invalid request" });
+  if (!user || !user.isActive || !user.isEmailVerified) {
+    return res.status(400).json({ error: "Invalid or expired reset code. Request a new code." });
   }
 
   const result = await verifyOTP(user.id, "reset", otp);
   if (!result.valid) {
     return res.status(400).json({ error: result.reason });
+  }
+
+  const resetToken = generateResetToken(user.id);
+
+  res.json({
+    message: "Reset code verified. Choose a new password.",
+    resetToken,
+    email: user.email,
+  });
+};
+
+// POST /api/auth/reset-password — requires resetToken from verify-reset-otp (OTP already consumed)
+exports.resetPassword = async (req, res) => {
+  const normalizedEmail = req.body.email?.toLowerCase();
+  const { resetToken, newPassword } = req.body;
+
+  const user = await User.findOne({ where: { email: normalizedEmail } });
+  if (!user || !user.isActive) {
+    return res.status(400).json({ error: "Unable to reset password. Request a new code." });
+  }
+
+  if (!resetToken) {
+    return res.status(400).json({
+      error: "Reset session expired. Request a new code from Forgot Password.",
+    });
+  }
+
+  let decoded;
+  try {
+    decoded = verifyResetToken(resetToken);
+  } catch {
+    return res.status(400).json({
+      error: "Reset session expired. Request a new code from Forgot Password.",
+    });
+  }
+
+  if (decoded.sub !== user.id) {
+    return res.status(400).json({ error: "Invalid request" });
   }
 
   const pwErrors = validatePasswordStrength(newPassword);

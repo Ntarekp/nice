@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { useAuthStore } from '../stores/auth.store'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
 import MaterialIcon from '../components/MaterialIcon'
@@ -8,13 +9,29 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { logout, clearLoginPending } = useAuthStore()
+
+  useEffect(() => {
+    logout()
+    clearLoginPending()
+    sessionStorage.removeItem('reset-token')
+  }, [logout, clearLoginPending])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     try {
-      await api.post('/api/auth/forgot-password', { email })
-      toast.success('If that email exists, a reset code was sent')
+      const { data } = await api.post('/api/auth/forgot-password', { email })
+      toast.success(
+        data.message ||
+          'If an account matches this email, a password reset code has been sent.'
+      )
+      if (import.meta.env.DEV && data.devOtpHint) {
+        console.info('[dev] Reset OTP for', email, ':', data.devOtpHint)
+        toast(`Dev reset code: ${data.devOtpHint}`, { icon: '🔑', duration: 20000 })
+      }
+      sessionStorage.removeItem('reset-token')
+      sessionStorage.setItem('reset-email', email)
       navigate('/reset-password', { state: { email } })
     } catch (err) {
       toast.error(err.response?.data?.error || 'Request failed')
@@ -37,7 +54,7 @@ export default function ForgotPasswordPage() {
           </div>
           <h2 className="mb-1 text-headline-md text-text-primary">Forgot Password</h2>
           <p className="text-sm text-text-secondary">
-            Enter your account email. We will send a 6-digit reset code if the account exists.
+            Enter your account email. If it is registered, we will email a one-time reset code.
           </p>
         </div>
 

@@ -12,10 +12,16 @@ describe("Database seed data", () => {
     dotenv.config({ path: path.join(__dirname, "../services/user-service/.env") });
     const { sequelize, User } = require("../services/user-service/src/models");
     await sequelize.authenticate();
-    const emails = ["ukemuk1@gmail.com", "cabledie@gmail.com", "devroom210@gmail.com"];
+    const emails = ["benmu91@gmail.com", "cabledie@gmail.com", "devroom210@gmail.com"];
+    const roles = {
+      "benmu91@gmail.com": "admin",
+      "cabledie@gmail.com": "inspector",
+      "devroom210@gmail.com": "user",
+    };
     for (const email of emails) {
       const u = await User.findOne({ where: { email } });
       assert.ok(u, `missing user ${email}`);
+      assert.equal(u.role, roles[email], `${email} role`);
       assert.ok(u.phone?.startsWith("+250"), `${email} needs Rwanda phone`);
       assert.equal(u.isEmailVerified, true);
     }

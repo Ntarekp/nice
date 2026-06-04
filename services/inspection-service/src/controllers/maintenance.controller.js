@@ -23,14 +23,14 @@ exports.logMaintenance = async (req, res) => {
 
   const log = await MaintenanceLog.create({
     extinguisherId,
-    inspectionId,
+    inspectionId: inspectionId || null,
     performedBy: req.user.sub,
     actionDate,
     actionsTaken,
-    conditionsNoted,
+    conditionsNoted: conditionsNoted?.trim() || null,
     partsReplaced: partsReplaced || [],
-    cost,
-    nextServiceDate,
+    cost: cost === "" || cost == null ? null : Number(cost),
+    nextServiceDate: nextServiceDate || null,
     status: status || "completed",
   });
 

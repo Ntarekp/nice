@@ -1,0 +1,354 @@
+// TWZ Fire Safety System — PostgreSQL schema (DBML)
+// Paste into https://dbdiagram.io (or VS Code DBML extension)
+// Matches Sequelize models in services/*/src/models/*.model.js
+// Created by: npm run db:create (scripts/create-databases.js)
+
+Project twz_fire_safety {
+  database_type: 'PostgreSQL'
+  Note: '''
+    ONE PostgreSQL server hosts FIVE separate databases (microservice pattern).
+    There are NO cross-database foreign keys — UUIDs are shared logically via API calls.
+
+    | Database           | Service              | Tables                          |
+    |--------------------|------------------------|---------------------------------|
+    | users_db           | user-service           | users, refresh_tokens, otp_codes, audit_logs |
+    | equipment_db       | equipment-service      | extinguishers                     |
+    | inspections_db     | inspection-service     | inspections, maintenance_logs   |
+    | reports_db         | report-service         | (no app tables — aggregates via HTTP) |
+    | notifications_db   | notification-service   | (no app tables — SMTP only)       |
+
+    Auth: JWT access + refresh tokens (PostgreSQL, not Redis).
+    OTP purposes: login | register | reset (stored in users_db.otp_codes).
+  '''
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENUMS — users_db
+// ═══════════════════════════════════════════════════════════════════════════
+
+Enum user_role {
+  admin
+  inspector
+  user
+}
+
+Enum audit_log_status {
+  success
+  failure
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENUMS — equipment_db
+// ═══════════════════════════════════════════════════════════════════════════
+
+Enum extinguisher_type {
+  water
+  co2
+  foam
+  dry_chemical
+  wet_chemical
+  halon
+}
+
+Enum extinguisher_size {
+  "2.5lbs"
+  "5lbs"
+  "9lbs"
+  "12lbs"
+  "20lbs"
+}
+
+Enum extinguisher_status {
+  active
+  expired
+  maintenance
+  decommissioned
+  missing
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENUMS — inspections_db
+// ═══════════════════════════════════════════════════════════════════════════
+
+Enum inspection_status {
+  scheduled
+  in_progress
+  completed
+  missed
+  cancelled
+}
+
+Enum inspection_type {
+  routine
+  annual
+  emergency
+  post_maintenance
+  compliance
+}
+
+Enum inspection_result {
+  passed
+  failed
+  needs_maintenance
+  decommissioned
+}
+
+Enum maintenance_log_status {
+  completed
+  pending_parts
+  decommissioned
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE: users_db (user-service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+TableGroup users_db {
+  users
+  refresh_tokens
+  otp_codes
+  audit_logs
+}
+
+Table users {
+  id uuid [pk, note: 'UUID v4 — default gen_random_uuid() via Sequelize']
+  firstName varchar(50) [not null]
+  lastName varchar(50) [not null]
+  email varchar(100) [not null, unique, note: 'Login identifier; normalized lowercase in app']
+  password varchar(255) [not null, note: 'bcrypt hash — never returned in API']
+  role user_role [not null, default: 'user', note: 'RBAC: admin | inspector | user']
+  isActive boolean [not null, default: true, note: 'false = deactivated (soft delete)']
+  mustChangePassword boolean [not null, default: true]
+  isEmailVerified boolean [not null, default: false]
+  phone varchar(20)
+  department varchar(100)
+  lastLoginAt timestamptz
+  passwordChangedAt timestamptz
+  profileImage varchar(500)
+  createdAt timestamptz [not null]
+  updatedAt timestamptz [not null]
+
+  indexes {
+    email [unique]
+  }
+
+  Note: 'Core identity. Admin creates users; facility users register equipment.'
+}
+
+Table refresh_tokens {
+  id uuid [pk]
+  userId uuid [not null, note: 'FK → users.id (same database)']
+  token text [not null, note: 'Refresh JWT stored server-side; revocable']
+  expiresAt timestamptz [not null]
+  isRevoked boolean [not null, default: false]
+  userAgent varchar(500)
+  ipAddress varchar(45)
+  createdAt timestamptz [not null]
+  updatedAt timestamptz [not null]
+
+  Note: 'Session continuity after OTP login. Revoked on logout / password reset.'
+}
+
+Table otp_codes {
+  id uuid [pk]
+  user_id uuid [note: 'FK → users.id; nullable for pre-registration flows']
+  email varchar(100) [not null]
+  otp_code varchar(10) [not null, note: '6-digit numeric code']
+  purpose varchar(50) [not null, default: 'login', note: 'login | register | reset']
+  expires_at timestamptz [not null, note: 'Typically now + 10 minutes']
+  is_used boolean [not null, default: false]
+  created_at timestamptz [not null, note: 'No updatedAt column']
+
+  indexes {
+    (user_id, purpose, is_used)
+    (email, purpose, is_used)
+    expires_at
+  }
+
+  Note: 'Email OTP for sign-in, registration verify, and password reset (reset consumed before new password).'
+}
+
+Table audit_logs {
+  id uuid [pk]
+  userId uuid [note: 'FK → users.id; nullable for system events']
+  action varchar(100) [not null, note: 'e.g. LOGIN_OTP_SENT, USER_CREATED, PASSWORD_RESET']
+  resource varchar(100) [note: 'e.g. users, inspections']
+  resourceId varchar(100)
+  oldValues jsonb
+  newValues jsonb
+  ipAddress varchar(45)
+  userAgent varchar(500)
+  status audit_log_status [not null, default: 'success']
+  createdAt timestamptz [not null, note: 'No updatedAt column']
+
+  Note: 'Security / compliance trail written by user-service.'
+}
+
+// users_db — relationships (enforced in PostgreSQL)
+
+Ref: refresh_tokens.userId > users.id [delete: cascade]
+Ref: otp_codes.user_id > users.id [delete: set null]
+Ref: audit_logs.userId > users.id [delete: cascade]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE: equipment_db (equipment-service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+TableGroup equipment_db {
+  extinguishers
+}
+
+Table extinguishers {
+  id uuid [pk]
+  serialNumber varchar(50) [not null, unique, note: 'Business key, e.g. TWZ-KGL-001']
+  location varchar(200) [not null, note: 'Human-readable placement']
+  building varchar(100)
+  floor varchar(20)
+  room varchar(50)
+  type extinguisher_type [not null]
+  size extinguisher_size [not null]
+  manufacturer varchar(100)
+  model varchar(100)
+  installationDate date [not null]
+  expiryDate date [not null]
+  lastInspectionDate date [note: 'Updated when inspection completes']
+  nextInspectionDate date
+  status extinguisher_status [not null, default: 'active']
+  pressure varchar(20)
+  notes text
+  qrCode varchar(500)
+  createdBy uuid [note: 'Logical FK → users_db.users.id (facility user who registered)']
+  createdAt timestamptz [not null]
+  updatedAt timestamptz [not null]
+
+  indexes {
+    serialNumber [unique]
+    status
+    expiryDate
+    location
+  }
+
+  Note: 'Inventory CRUD. User role registers; inspector/admin read all; user sees own (createdBy).'
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE: inspections_db (inspection-service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+TableGroup inspections_db {
+  inspections
+  maintenance_logs
+}
+
+Table inspections {
+  id uuid [pk]
+  extinguisherId uuid [not null, note: 'Logical FK → equipment_db.extinguishers.id']
+  scheduledBy uuid [not null, note: 'Logical FK → users_db.users.id (facility user who requested)']
+  assignedInspector uuid [note: 'Logical FK → users_db.users.id (inspector); null until admin assigns']
+  scheduledDate timestamptz [not null]
+  completedDate timestamptz
+  status inspection_status [not null, default: 'scheduled']
+  type inspection_type [not null, default: 'routine']
+  result inspection_result [note: 'Set when status = completed']
+  findings text
+  notes text
+  nextInspectionDate date
+  notifiedAt timestamptz [note: 'When assignment email was sent']
+  createdAt timestamptz [not null]
+  updatedAt timestamptz [not null]
+
+  indexes {
+    extinguisherId
+    scheduledDate
+    status
+  }
+
+  Note: '''
+    Workflow:
+    1) User POST /api/inspections → status=scheduled, assignedInspector=null
+    2) Admin PATCH /api/inspections/:id/assign → sets assignedInspector + email
+    3) Inspector PATCH /api/inspections/:id → complete with result
+  '''
+}
+
+Table maintenance_logs {
+  id uuid [pk]
+  extinguisherId uuid [not null, note: 'Logical FK → equipment_db.extinguishers.id']
+  inspectionId uuid [note: 'Logical FK → inspections.id (same database)']
+  performedBy uuid [not null, note: 'Logical FK → users_db.users.id (inspector)']
+  actionDate date [not null]
+  actionsTaken text [not null]
+  conditionsNoted text
+  partsReplaced jsonb [not null, default: '[]', note: 'Array of part names']
+  cost decimal(10,2)
+  nextServiceDate date
+  status maintenance_log_status [not null, default: 'completed']
+  createdAt timestamptz [not null]
+  updatedAt timestamptz [not null]
+
+  Note: 'Field maintenance record. May decommission extinguisher via equipment API.'
+}
+
+// inspections_db — relationships (enforced in PostgreSQL)
+
+Ref: maintenance_logs.inspectionId > inspections.id [delete: cascade]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOGICAL cross-database references (NOT enforced by PostgreSQL)
+// Drawn for ER documentation only — enforce in application layer
+// ═══════════════════════════════════════════════════════════════════════════
+
+Ref: inspections.extinguisherId - extinguishers.id [note: 'cross-db: inspections_db → equipment_db']
+Ref: inspections.scheduledBy - users.id [note: 'cross-db: inspections_db → users_db']
+Ref: inspections.assignedInspector - users.id [note: 'cross-db: inspections_db → users_db']
+Ref: maintenance_logs.extinguisherId - extinguishers.id [note: 'cross-db: inspections_db → equipment_db']
+Ref: maintenance_logs.performedBy - users.id [note: 'cross-db: inspections_db → users_db']
+Ref: extinguishers.createdBy - users.id [note: 'cross-db: equipment_db → users_db']
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SAMPLE DATA (illustrative — IDs shortened for readability)
+// Passwords in DB are bcrypt hashes; demo password after seed: Test@1234!
+// ═══════════════════════════════════════════════════════════════════════════
+
+TableGroup sample_users_db {
+  users
+  otp_codes
+}
+
+TableGroup sample_equipment_db {
+  extinguishers
+}
+
+TableGroup sample_inspections_db {
+  inspections
+  maintenance_logs
+}
+
+// --- users (users_db) ---
+
+Records users(id, firstName, lastName, email, role, isActive, isEmailVerified, mustChangePassword, department) {
+  'u-admin-001', 'Ben', 'Admin', 'benmu91@gmail.com', 'admin', true, true, false, 'TWZ HQ — Kigali'
+  'u-insp-001', 'Marie Chantal', 'Mukamazimpaka', 'cabledie@gmail.com', 'inspector', true, true, false, 'Field Inspections — Kigali'
+  'u-fac-001', 'Patrick', 'Niyonsenga', 'devroom210@gmail.com', 'user', true, true, false, 'Facilities — Gasabo'
+}
+
+// --- extinguishers (equipment_db) ---
+
+Records extinguishers(id, serialNumber, location, building, type, size, installationDate, expiryDate, status, createdBy) {
+  'e-001', 'TWZ-KGL-001', 'Kigali City Tower — Ground Floor', 'Kigali City Tower', 'co2', '5lbs', '2023-01-15', '2026-01-15', 'active', 'u-fac-001'
+  'e-002', 'TWZ-KGL-002', 'CHIC Building — Server Room', 'CHIC Building', 'dry_chemical', '9lbs', '2022-06-01', '2025-06-01', 'active', 'u-fac-001'
+  'e-003', 'TWZ-KGL-003', 'KCC — Hall A', 'KCC', 'foam', '12lbs', '2021-03-20', '2024-03-20', 'expired', 'u-fac-001'
+}
+
+// --- inspections (inspections_db) ---
+
+Records inspections(id, extinguisherId, scheduledBy, assignedInspector, scheduledDate, status, type, result, notes) {
+  'i-001', 'e-001', 'u-fac-001', null, '2026-07-01', 'scheduled', 'routine', null, 'Awaiting admin assignment'
+  'i-002', 'e-002', 'u-fac-001', 'u-insp-001', '2025-11-01', 'completed', 'annual', 'passed', 'CHIC Building server room'
+}
+
+// --- maintenance_logs (inspections_db) ---
+
+Records maintenance_logs(id, extinguisherId, inspectionId, performedBy, actionDate, actionsTaken, status, cost) {
+  'm-001', 'e-002', 'i-002', 'u-insp-001', '2025-11-02', 'Replaced pressure gauge seal', 'completed', 45.50
+}

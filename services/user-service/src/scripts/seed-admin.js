@@ -9,8 +9,8 @@ async function seed() {
   if (existing) { console.log("Admin already exists:", existing.email); return process.exit(0); }
   const hashed = await hashPassword("Admin@1234!");
   const admin  = await User.create({
-    firstName: "System", lastName: "Admin",
-    email: "admin@twzltd.com", password: hashed,
+    firstName: "Ben", lastName: "Admin",
+    email: "benmu91@gmail.com", password: hashed,
     role: "admin", mustChangePassword: true, isEmailVerified: true
   });
   console.log("\n✅ Admin created:", admin.email);
