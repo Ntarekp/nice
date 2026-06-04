@@ -1,0 +1,669 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "TWZ Fire Extinguisher Management System API",
+    "version": "1.0.0",
+    "description": "Complete RESTful API for fire extinguisher management. Auth uses a 2-step flow: POST /api/auth/login (credentials) → receive userId → POST /api/auth/verify-otp (OTP from email) → receive JWT tokens.",
+    "contact": { "name": "TWZ Ltd", "email": "support@twzltd.com" }
+  },
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Local development" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "totalPages": { "type": "integer" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["admin","inspector","user"] },
+          "isActive": { "type": "boolean" },
+          "mustChangePassword": { "type": "boolean" },
+          "phone": { "type": "string" },
+          "department": { "type": "string" },
+          "lastLoginAt": { "type": "string", "format": "date-time" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Extinguisher": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "serialNumber": { "type": "string" },
+          "location": { "type": "string" },
+          "building": { "type": "string" },
+          "floor": { "type": "string" },
+          "room": { "type": "string" },
+          "type": { "type": "string", "enum": ["water","co2","foam","dry_chemical","wet_chemical","halon"] },
+          "size": { "type": "string", "enum": ["2.5lbs","5lbs","9lbs","12lbs","20lbs"] },
+          "manufacturer": { "type": "string" },
+          "model": { "type": "string" },
+          "installationDate": { "type": "string", "format": "date" },
+          "expiryDate": { "type": "string", "format": "date" },
+          "lastInspectionDate": { "type": "string", "format": "date" },
+          "nextInspectionDate": { "type": "string", "format": "date" },
+          "status": { "type": "string", "enum": ["active","expired","maintenance","decommissioned","missing"] },
+          "pressure": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      },
+      "Inspection": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "extinguisherId": { "type": "string", "format": "uuid" },
+          "scheduledBy": { "type": "string", "format": "uuid" },
+          "assignedInspector": { "type": "string", "format": "uuid" },
+          "scheduledDate": { "type": "string", "format": "date-time" },
+          "completedDate": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] },
+          "type": { "type": "string", "enum": ["routine","annual","emergency","post_maintenance","compliance"] },
+          "result": { "type": "string", "enum": ["passed","failed","needs_maintenance","decommissioned"] },
+          "findings": { "type": "string" },
+          "notes": { "type": "string" },
+          "nextInspectionDate": { "type": "string", "format": "date" }
+        }
+      },
+      "MaintenanceLog": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "extinguisherId": { "type": "string", "format": "uuid" },
+          "inspectionId": { "type": "string", "format": "uuid" },
+          "performedBy": { "type": "string", "format": "uuid" },
+          "actionDate": { "type": "string", "format": "date" },
+          "actionsTaken": { "type": "string" },
+          "conditionsNoted": { "type": "string" },
+          "partsReplaced": { "type": "array", "items": { "type": "string" } },
+          "cost": { "type": "number" },
+          "nextServiceDate": { "type": "string", "format": "date" },
+          "status": { "type": "string", "enum": ["completed","pending_parts","decommissioned"] }
+        }
+      }
+    }
+  },
+  "security": [{ "BearerAuth": [] }],
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Register new user (role: user)",
+        "description": "Creates account with hashed password, sends OTP email. Call /verify-otp with purpose=register to activate.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["firstName","lastName","email","password"],
+            "properties": {
+              "firstName": { "type": "string", "minLength": 2 },
+              "lastName": { "type": "string", "minLength": 2 },
+              "email": { "type": "string", "format": "email" },
+              "password": { "type": "string", "minLength": 8 }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "User created, OTP sent" },
+          "409": { "description": "Email already registered" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Login with credentials",
+        "description": "Validates email+password. Verified users receive JWT tokens. Unverified users receive 403 and a new registration OTP.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["email","password"],
+            "properties": {
+              "email": { "type": "string", "format": "email", "example": "admin@twzltd.com" },
+              "password": { "type": "string", "example": "Admin@1234!" }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "JWT tokens issued (verified user)" },
+          "403": { "description": "Email not verified — OTP resent" },
+          "400": { "description": "Missing fields", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }}}},
+          "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }}}}
+        }
+      }
+    },
+    "/api/auth/verify-otp": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Step 2 — Verify OTP, receive JWT tokens",
+        "description": "Submits the 6-digit OTP received by email. Returns accessToken (15min) and refreshToken (7d). If mustChangePassword=true, call /change-password before accessing other routes.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["userId","otp"],
+            "properties": {
+              "userId": { "type": "string", "format": "uuid" },
+              "otp": { "type": "string", "minLength": 6, "maxLength": 6, "example": "482910" }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "Tokens issued", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "accessToken": { "type": "string" },
+              "refreshToken": { "type": "string" },
+              "mustChangePassword": { "type": "boolean" },
+              "user": { "$ref": "#/components/schemas/User" }
+            }
+          }}}},
+          "401": { "description": "Invalid or expired OTP" }
+        }
+      }
+    },
+    "/api/auth/refresh-token": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Refresh access token",
+        "description": "Exchange a valid refreshToken for new accessToken + refreshToken pair (rotation).",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["refreshToken"],
+            "properties": { "refreshToken": { "type": "string" } }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "New token pair issued" },
+          "401": { "description": "Refresh token invalid or expired" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Refresh access token (alias)",
+        "description": "Exchange a valid refreshToken for new accessToken + refreshToken pair (rotation).",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["refreshToken"],
+            "properties": { "refreshToken": { "type": "string" } }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "New token pair issued" },
+          "401": { "description": "Refresh token invalid or expired" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Logout — revoke refresh token",
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "refreshToken": { "type": "string" } }
+          }}}
+        },
+        "responses": { "200": { "description": "Logged out" } }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Change password (required on first login)",
+        "description": "Required when mustChangePassword=true. Must meet strength policy: 8+ chars, uppercase, lowercase, number, special char.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["currentPassword","newPassword"],
+            "properties": {
+              "currentPassword": { "type": "string" },
+              "newPassword": { "type": "string", "minLength": 8 }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "Password changed" },
+          "400": { "description": "Weak password or wrong current password" }
+        }
+      }
+    },
+    "/api/auth/forgot-password": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Request password reset OTP",
+        "description": "Sends OTP to email if account exists. Always returns 200 to prevent email enumeration.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["email"],
+            "properties": { "email": { "type": "string", "format": "email" } }
+          }}}
+        },
+        "responses": { "200": { "description": "OTP sent if email exists" } }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["1. Authentication"],
+        "summary": "Reset password using OTP",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["email","otp","newPassword"],
+            "properties": {
+              "email": { "type": "string", "format": "email" },
+              "otp": { "type": "string", "minLength": 6, "maxLength": 6 },
+              "newPassword": { "type": "string", "minLength": 8 }
+            }
+          }}}
+        },
+        "responses": {
+          "200": { "description": "Password reset. All refresh tokens revoked." },
+          "400": { "description": "Invalid OTP or weak password" }
+        }
+      }
+    },
+    "/api/users": {
+      "post": {
+        "tags": ["2. User Management"],
+        "summary": "Create user (Admin only)",
+        "description": "Admin creates a new user. A temporary password is auto-generated and emailed to the user. User must change it on first login.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["firstName","lastName","email","role"],
+            "properties": {
+              "firstName": { "type": "string", "minLength": 2 },
+              "lastName": { "type": "string", "minLength": 2 },
+              "email": { "type": "string", "format": "email" },
+              "role": { "type": "string", "enum": ["admin","inspector","user"] },
+              "phone": { "type": "string" },
+              "department": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "User created. Temp password emailed.", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "message": { "type": "string" }, "user": { "$ref": "#/components/schemas/User" } }
+          }}}},
+          "409": { "description": "Email already registered" }
+        }
+      },
+      "get": {
+        "tags": ["2. User Management"],
+        "summary": "List all users (Admin only, paginated)",
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer", "default": 1 } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 20 } },
+          { "in": "query", "name": "role", "schema": { "type": "string", "enum": ["admin","inspector","user"] } },
+          { "in": "query", "name": "isActive", "schema": { "type": "boolean" } },
+          { "in": "query", "name": "search", "schema": { "type": "string", "description": "Search name or email" } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated user list", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "data": { "type": "array", "items": { "$ref": "#/components/schemas/User" } },
+              "pagination": { "$ref": "#/components/schemas/Pagination" }
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/users/me": {
+      "get": {
+        "tags": ["2. User Management"],
+        "summary": "Get my profile",
+        "responses": { "200": { "description": "Current user profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } }}} }
+      },
+      "patch": {
+        "tags": ["2. User Management"],
+        "summary": "Update my profile",
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" }, "lastName": { "type": "string" },
+              "phone": { "type": "string" }, "department": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated profile" } }
+      }
+    },
+    "/api/users/{id}": {
+      "get": {
+        "tags": ["2. User Management"],
+        "summary": "Get user by ID (Admin only)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "User data" }, "404": { "description": "User not found" } }
+      },
+      "patch": {
+        "tags": ["2. User Management"],
+        "summary": "Update user (Admin can update role/isActive)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "firstName": { "type": "string" }, "lastName": { "type": "string" },
+              "role": { "type": "string", "enum": ["admin","inspector","user"], "description": "Admin only" },
+              "isActive": { "type": "boolean", "description": "Admin only" },
+              "phone": { "type": "string" }, "department": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated user" } }
+      },
+      "delete": {
+        "tags": ["2. User Management"],
+        "summary": "Deactivate user (Admin only — soft delete)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "User deactivated" }, "400": { "description": "Cannot deactivate yourself" } }
+      }
+    },
+    "/api/users/audit-logs": {
+      "get": {
+        "tags": ["2. User Management"],
+        "summary": "Get system audit logs (Admin only, paginated)",
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Paginated audit log entries" } }
+      }
+    },
+    "/api/extinguishers": {
+      "post": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Register new extinguisher (Admin/Inspector)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "required": ["serialNumber","location","type","size","installationDate","expiryDate"],
+            "properties": {
+              "serialNumber": { "type": "string", "example": "EXT-2024-001" },
+              "location": { "type": "string", "example": "Building A, Ground Floor" },
+              "building": { "type": "string" },
+              "floor": { "type": "string" },
+              "room": { "type": "string" },
+              "type": { "type": "string", "enum": ["water","co2","foam","dry_chemical","wet_chemical","halon"] },
+              "size": { "type": "string", "enum": ["2.5lbs","5lbs","9lbs","12lbs","20lbs"] },
+              "manufacturer": { "type": "string" },
+              "model": { "type": "string" },
+              "installationDate": { "type": "string", "format": "date", "example": "2024-01-15" },
+              "expiryDate": { "type": "string", "format": "date", "example": "2029-01-15" },
+              "pressure": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Extinguisher registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Extinguisher" } }}},
+          "409": { "description": "Serial number already exists" }
+        }
+      },
+      "get": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "List all extinguishers (paginated, filterable)",
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer", "default": 1 } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 20 } },
+          { "in": "query", "name": "status", "schema": { "type": "string", "enum": ["active","expired","maintenance","decommissioned","missing"] } },
+          { "in": "query", "name": "type", "schema": { "type": "string", "enum": ["water","co2","foam","dry_chemical","wet_chemical","halon"] } },
+          { "in": "query", "name": "location", "schema": { "type": "string" } },
+          { "in": "query", "name": "search", "schema": { "type": "string", "description": "Search serial number, location, building" } },
+          { "in": "query", "name": "expiringSoon", "schema": { "type": "boolean", "description": "Filter units expiring within 30 days" } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated list", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "data": { "type": "array", "items": { "$ref": "#/components/schemas/Extinguisher" } },
+              "pagination": { "$ref": "#/components/schemas/Pagination" }
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/extinguishers/stats/summary": {
+      "get": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Get equipment summary stats (counts by status, type)",
+        "responses": {
+          "200": { "description": "Stats summary", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" }, "active": { "type": "integer" },
+              "expired": { "type": "integer" }, "maintenance": { "type": "integer" },
+              "expiringSoon": { "type": "integer" },
+              "byType": { "type": "array", "items": { "type": "object", "properties": { "type": { "type": "string" }, "count": { "type": "integer" } }}}
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/extinguishers/{id}": {
+      "get": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Get extinguisher by ID",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Extinguisher details", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Extinguisher" } }}},
+          "404": { "description": "Not found" }
+        }
+      },
+      "patch": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Update extinguisher (Admin/Inspector)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "location": { "type": "string" }, "building": { "type": "string" },
+              "status": { "type": "string", "enum": ["active","expired","maintenance","decommissioned","missing"] },
+              "pressure": { "type": "string" }, "notes": { "type": "string" },
+              "lastInspectionDate": { "type": "string", "format": "date" },
+              "nextInspectionDate": { "type": "string", "format": "date" },
+              "expiryDate": { "type": "string", "format": "date" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated" }, "404": { "description": "Not found" } }
+      },
+      "delete": {
+        "tags": ["3. Extinguisher Management"],
+        "summary": "Remove/decommission extinguisher (Admin only)",
+        "description": "Default: marks as decommissioned. Pass ?hard=true to permanently delete (Admin only).",
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "in": "query", "name": "hard", "schema": { "type": "boolean", "description": "Permanently delete if true (Admin only)" } }
+        ],
+        "responses": { "200": { "description": "Decommissioned or deleted" } }
+      }
+    },
+    "/api/inspections": {
+      "post": {
+        "tags": ["4. Inspections"],
+        "summary": "Schedule an inspection (Admin/Inspector/User)",
+        "description": "Creates an inspection record and notifies assigned inspector by email.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["extinguisherId","scheduledDate"],
+            "properties": {
+              "extinguisherId": { "type": "string", "format": "uuid" },
+              "scheduledDate": { "type": "string", "format": "date-time" },
+              "type": { "type": "string", "enum": ["routine","annual","emergency","post_maintenance","compliance"], "default": "routine" },
+              "assignedInspector": { "type": "string", "format": "uuid" },
+              "notes": { "type": "string" }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Inspection scheduled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Inspection" } }}},
+          "404": { "description": "Extinguisher not found" }
+        }
+      },
+      "get": {
+        "tags": ["4. Inspections"],
+        "summary": "List inspections (paginated). Inspectors see only their own.",
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer" } },
+          { "in": "query", "name": "status", "schema": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] } },
+          { "in": "query", "name": "type", "schema": { "type": "string" } },
+          { "in": "query", "name": "extinguisherId", "schema": { "type": "string", "format": "uuid" } },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date", "description": "Filter by scheduled date from" } },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date", "description": "Filter by scheduled date to" } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated inspections", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "data": { "type": "array", "items": { "$ref": "#/components/schemas/Inspection" } },
+              "pagination": { "$ref": "#/components/schemas/Pagination" }
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/inspections/{id}": {
+      "get": {
+        "tags": ["4. Inspections"],
+        "summary": "Get inspection by ID (includes maintenance logs)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Inspection with nested maintenance logs" }, "404": { "description": "Not found" } }
+      },
+      "patch": {
+        "tags": ["4. Inspections"],
+        "summary": "Update inspection — log result (Inspector logs completion)",
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "enum": ["scheduled","in_progress","completed","missed","cancelled"] },
+              "result": { "type": "string", "enum": ["passed","failed","needs_maintenance","decommissioned"] },
+              "findings": { "type": "string" },
+              "notes": { "type": "string" },
+              "completedDate": { "type": "string", "format": "date-time" },
+              "nextInspectionDate": { "type": "string", "format": "date" }
+            }
+          }}}
+        },
+        "responses": { "200": { "description": "Updated inspection" } }
+      }
+    },
+    "/api/maintenance": {
+      "post": {
+        "tags": ["5. Maintenance"],
+        "summary": "Log a maintenance activity (Inspector only)",
+        "description": "Inspector logs actions taken, conditions noted, parts replaced, and cost. If status=decommissioned, extinguisher status is also updated.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["extinguisherId","actionDate","actionsTaken"],
+            "properties": {
+              "extinguisherId": { "type": "string", "format": "uuid" },
+              "inspectionId": { "type": "string", "format": "uuid", "description": "Optional linked inspection" },
+              "actionDate": { "type": "string", "format": "date" },
+              "actionsTaken": { "type": "string", "description": "Detailed description of maintenance actions" },
+              "conditionsNoted": { "type": "string" },
+              "partsReplaced": { "type": "array", "items": { "type": "string" }, "example": ["valve","pressure gauge"] },
+              "cost": { "type": "number", "example": 45.50 },
+              "nextServiceDate": { "type": "string", "format": "date" },
+              "status": { "type": "string", "enum": ["completed","pending_parts","decommissioned"] }
+            }
+          }}}
+        },
+        "responses": {
+          "201": { "description": "Maintenance log created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaintenanceLog" } }}}
+        }
+      },
+      "get": {
+        "tags": ["5. Maintenance"],
+        "summary": "List maintenance logs (paginated)",
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer" } },
+          { "in": "query", "name": "extinguisherId", "schema": { "type": "string", "format": "uuid" } },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date" } },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated maintenance logs", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "data": { "type": "array", "items": { "$ref": "#/components/schemas/MaintenanceLog" } },
+              "pagination": { "$ref": "#/components/schemas/Pagination" }
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/reports/dashboard": {
+      "get": {
+        "tags": ["6. Reports"],
+        "summary": "Real-time dashboard summary (Admin/Inspector)",
+        "description": "Aggregates data from equipment and inspection services. Returns counts by status, daily/monthly/yearly breakdowns.",
+        "responses": {
+          "200": { "description": "Dashboard data", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": {
+              "extinguishers": { "type": "object" },
+              "inspections": { "type": "object" },
+              "maintenance": { "type": "object" },
+              "generatedAt": { "type": "string", "format": "date-time" }
+            }
+          }}}}
+        }
+      }
+    },
+    "/api/reports/export": {
+      "get": {
+        "tags": ["6. Reports"],
+        "summary": "Export report as PDF or CSV",
+        "description": "Streams file directly. PDF contains up to 50 records; CSV contains all. Use Content-Disposition header to detect filename.",
+        "parameters": [
+          { "in": "query", "name": "format", "required": true, "schema": { "type": "string", "enum": ["pdf","csv"] } },
+          { "in": "query", "name": "type", "required": true, "schema": { "type": "string", "enum": ["extinguishers","inspections","maintenance"] } }
+        ],
+        "responses": {
+          "200": { "description": "File download", "content": { "application/pdf": {}, "text/csv": {} } },
+          "400": { "description": "Invalid type or format" }
+        }
+      }
+    }
+  }
+}

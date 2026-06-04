@@ -1,0 +1,23 @@
+{
+  "name": "equipment-service",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "latest",
+    "express": "latest",
+    "express-rate-limit": "latest",
+    "express-validator": "latest",
+    "helmet": "latest",
+    "jsonwebtoken": "latest",
+    "morgan": "latest",
+    "pg": "latest",
+    "pg-hstore": "latest",
+    "sequelize": "latest"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

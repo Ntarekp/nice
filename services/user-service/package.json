@@ -1,0 +1,28 @@
+{
+  "name": "user-service",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "seed": "node ../../scripts/seed-all.js"
+  },
+  "dependencies": {
+    "axios": "latest",
+    "bcryptjs": "latest",
+    "crypto": "latest",
+    "dotenv": "^17.4.2",
+    "express": "latest",
+    "express-rate-limit": "latest",
+    "express-validator": "latest",
+    "helmet": "latest",
+    "jsonwebtoken": "latest",
+    "morgan": "latest",
+    "pg": "latest",
+    "pg-hstore": "latest",
+    "sequelize": "latest",
+    "uuid": "latest"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
