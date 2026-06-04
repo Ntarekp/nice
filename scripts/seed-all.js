@@ -10,6 +10,8 @@ const userModules = path.join(__dirname, "../services/user-service/node_modules"
 const axios = require(path.join(userModules, "axios"));
 const dotenv = require(path.join(userModules, "dotenv"));
 
+dotenv.config({ path: path.join(__dirname, "../.env") });
+
 const DEMO_PASSWORD = "Test@1234!";
 const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL || "http://localhost:3005";
 

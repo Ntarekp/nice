@@ -5,11 +5,13 @@
   "description": "Root workspace — runs all microservices + frontend concurrently",
   "scripts": {
     "install:all": "node scripts/install-all.js",
+    "db:create": "node scripts/create-databases.js",
     "seed": "node scripts/seed-all.js",
+    "setup": "npm run db:create && npm run seed",
     "test": "node --test tests/db-smoke.test.js",
     "test:db": "node --test tests/db-smoke.test.js",
     "test:integration": "node --test tests/integration.test.js",
-    "dev": "concurrently --kill-others-on-fail --prefix-colors \"bgRed,bgGreen,bgYellow,bgBlue,bgMagenta,bgCyan\" --names \"GATEWAY,USER,EQUIPMENT,INSPECTION,REPORT,NOTIFY,FRONTEND\" \"npm run dev --prefix api-gateway\" \"npm run dev --prefix services/user-service\" \"npm run dev --prefix services/equipment-service\" \"npm run dev --prefix services/inspection-service\" \"npm run dev --prefix services/report-service\" \"npm run dev --prefix services/notification-service\" \"npm run dev --prefix frontend\"",
+    "dev": "concurrently --kill-others-on-fail --prefix-colors \"bgRed,bgGreen,bgYellow,bgBlue,bgMagenta,bgCyan,white\" --names \"GATEWAY,USER,EQUIP,INSP,REPORT,NOTIFY,FRONTEND\" \"npm run dev --prefix api-gateway\" \"npm run dev --prefix services/user-service\" \"npm run dev --prefix services/equipment-service\" \"npm run dev --prefix services/inspection-service\" \"npm run dev --prefix services/report-service\" \"npm run dev --prefix services/notification-service\" \"npm run dev --prefix frontend\"",
     "start": "concurrently --kill-others-on-fail --names \"GATEWAY,USER,EQUIPMENT,INSPECTION,REPORT,NOTIFY,FRONTEND\" \"npm start --prefix api-gateway\" \"npm start --prefix services/user-service\" \"npm start --prefix services/equipment-service\" \"npm start --prefix services/inspection-service\" \"npm start --prefix services/report-service\" \"npm start --prefix services/notification-service\" \"npm run preview --prefix frontend\""
   },
   "devDependencies": {

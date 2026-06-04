@@ -267,3 +267,110 @@ exports.logout = async (req, res) => {
 
   res.json({ message: "Logged out successfully" });
 };
+
+// POST /api/auth/change-password
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const user = await User.findByPk(req.user.sub);
+
+  if (!user || !user.isActive) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const valid = await comparePassword(currentPassword, user.password);
+  if (!valid) {
+    return res.status(400).json({ error: "Current password is incorrect" });
+  }
+
+  const pwErrors = validatePasswordStrength(newPassword);
+  if (pwErrors.length) {
+    return res.status(400).json({ error: "Weak password", details: pwErrors });
+  }
+
+  const hashed = await hashPassword(newPassword);
+  await user.update({
+    password: hashed,
+    mustChangePassword: false,
+    passwordChangedAt: new Date(),
+  });
+
+  await RefreshToken.update({ isRevoked: true }, { where: { userId: user.id } });
+
+  await AuditLog.create({
+    userId: user.id,
+    action: "PASSWORD_CHANGED",
+    status: "success",
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  res.json({ message: "Password changed successfully" });
+};
+
+// POST /api/auth/forgot-password
+exports.forgotPassword = async (req, res) => {
+  const normalizedEmail = req.body.email?.toLowerCase();
+  const user = await User.findOne({ where: { email: normalizedEmail } });
+
+  if (user && user.isActive && user.isEmailVerified) {
+    const otp = await storeOTP(user.id, "reset");
+    await sendNotification("password_reset", {
+      email: user.email,
+      name: user.firstName,
+      otp,
+    });
+    await AuditLog.create({
+      userId: user.id,
+      action: "PASSWORD_RESET_REQUESTED",
+      status: "success",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+  }
+
+  res.json({
+    message: "If that email exists, a reset OTP has been sent",
+  });
+};
+
+// POST /api/auth/reset-password
+exports.resetPassword = async (req, res) => {
+  const normalizedEmail = req.body.email?.toLowerCase();
+  const { otp, newPassword } = req.body;
+
+  const user = await User.findOne({ where: { email: normalizedEmail } });
+  if (!user || !user.isActive) {
+    return res.status(400).json({ error: "Invalid request" });
+  }
+
+  const result = await verifyOTP(user.id, "reset", otp);
+  if (!result.valid) {
+    return res.status(400).json({ error: result.reason });
+  }
+
+  const pwErrors = validatePasswordStrength(newPassword);
+  if (pwErrors.length) {
+    return res.status(400).json({ error: "Weak password", details: pwErrors });
+  }
+
+  const hashed = await hashPassword(newPassword);
+  await user.update({
+    password: hashed,
+    mustChangePassword: false,
+    passwordChangedAt: new Date(),
+  });
+
+  await RefreshToken.update({ isRevoked: true }, { where: { userId: user.id } });
+
+  await AuditLog.create({
+    userId: user.id,
+    action: "PASSWORD_RESET",
+    status: "success",
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  res.json({
+    message: "Password reset successfully. Please log in.",
+  });
+};

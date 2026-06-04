@@ -3,7 +3,9 @@ const crypto = require("crypto");
 
 const generateTokens = (user) => {
   const payload = { sub: user.id, role: user.role, email: user.email };
-  const accessToken  = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "15m" });
+  const accessToken  = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "15m",
+  });
   const refreshToken = jwt.sign(
     { sub: user.id, jti: crypto.randomUUID() },
     process.env.JWT_REFRESH_SECRET,

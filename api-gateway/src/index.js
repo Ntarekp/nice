@@ -48,27 +48,38 @@ if (fs.existsSync(swaggerFile)) {
 app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date() }));
 
 // ── Proxy helpers ─────────────────────────────────────────────────────────────
-const proxy = (target) => createProxyMiddleware({
-  target, changeOrigin: true,
-  on: {
-    error: (err, req, res) => {
-      console.error(`[Proxy] Error → ${target}:`, err.message);
-      res.status(502).json({ error: "Service temporarily unavailable" });
-    }
-  }
-});
+// v3 + app.use(mount, proxy) strips the mount path (e.g. /api/auth/login → /login).
+// Use pathFilter on the full URL so backends still receive /api/... paths.
+const proxy = (target, pathPrefix) =>
+  createProxyMiddleware({
+    target,
+    changeOrigin: true,
+    pathFilter: pathPrefix,
+    on: {
+      error: (err, req, res) => {
+        console.error(`[Proxy] Error → ${target}:`, err.message);
+        if (!res.headersSent) {
+          res.status(502).json({ error: "Service temporarily unavailable" });
+        }
+      },
+    },
+  });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth/login",   authLimiter);
 app.use("/api/auth/verify-otp", otpLimiter);
 app.use("/api/auth/register",   authLimiter);
-app.use("/api/auth",         proxy(process.env.USER_SERVICE_URL      || "http://localhost:3001"));
-app.use("/api/users",        proxy(process.env.USER_SERVICE_URL      || "http://localhost:3001"));
-app.use("/api/extinguishers",proxy(process.env.EQUIPMENT_SERVICE_URL || "http://localhost:3002"));
-app.use("/api/inspections",  proxy(process.env.INSPECTION_SERVICE_URL|| "http://localhost:3003"));
-app.use("/api/maintenance",  proxy(process.env.INSPECTION_SERVICE_URL|| "http://localhost:3003"));
-app.use("/api/reports",      proxy(process.env.REPORT_SERVICE_URL    || "http://localhost:3004"));
-app.use("/api/notifications",proxy(process.env.NOTIFICATION_SERVICE_URL|| "http://localhost:3005"));
+app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/reset-password", otpLimiter);
+
+const userService = process.env.USER_SERVICE_URL || "http://localhost:3001";
+app.use(proxy(userService, "/api/auth"));
+app.use(proxy(userService, "/api/users"));
+app.use(proxy(process.env.EQUIPMENT_SERVICE_URL || "http://localhost:3002", "/api/extinguishers"));
+app.use(proxy(process.env.INSPECTION_SERVICE_URL || "http://localhost:3003", "/api/inspections"));
+app.use(proxy(process.env.INSPECTION_SERVICE_URL || "http://localhost:3003", "/api/maintenance"));
+app.use(proxy(process.env.REPORT_SERVICE_URL || "http://localhost:3004", "/api/reports"));
+app.use(proxy(process.env.NOTIFICATION_SERVICE_URL || "http://localhost:3005", "/api/notifications"));
 
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
