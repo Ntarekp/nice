@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
+import MaterialIcon from '../components/MaterialIcon'
+import { getPasswordRules } from '../lib/passwordStrength'
 
 export default function ResetPasswordPage() {
   const location = useLocation()
@@ -12,6 +14,7 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
   const refs = useRef([])
+  const rules = getPasswordRules(newPassword)
 
   useEffect(() => {
     if (!email) navigate('/forgot-password', { replace: true })
@@ -58,47 +61,65 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <h2 style={styles.title}>Reset password</h2>
-        <p style={styles.sub}>
-          Enter the code sent to <strong>{email}</strong> and choose a new password.
-        </p>
+    <div className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-surface-bright p-4 md:p-8">
+      <div className="pointer-events-none absolute left-[-10%] top-[-10%] h-[40vw] w-[40vw] rounded-full bg-primary-fixed/20 blur-[100px]" />
+      <div className="pointer-events-none absolute bottom-[-10%] right-[-10%] h-[30vw] w-[30vw] rounded-full bg-secondary-fixed/20 blur-[100px]" />
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.inputs} onPaste={handlePaste}>
+      <main className="relative z-10 w-full max-w-[520px] rounded-xl border border-border-ice bg-surface-white/90 p-8 shadow-lg backdrop-blur-md md:p-12">
+        <div className="mb-8 text-center">
+          <div className="mb-6 flex items-center justify-center gap-2">
+            <MaterialIcon name="shield_lock" size={28} fill className="text-primary" />
+            <h1 className="text-headline-sm font-extrabold text-primary">PyroGuard Pro</h1>
+          </div>
+          <h2 className="mb-1 text-headline-md text-text-primary">Reset Password</h2>
+          <p className="text-sm text-text-secondary">
+            Enter the code sent to <strong className="text-text-primary">{email}</strong> and choose a new password.
+          </p>
+        </div>
+
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex justify-center gap-2" onPaste={handlePaste}>
             {digits.map((d, i) => (
               <input
                 key={i}
-                ref={(el) => { refs.current[i] = el }}
+                ref={(el) => {
+                  refs.current[i] = el
+                }}
                 type="text"
                 inputMode="numeric"
                 maxLength={1}
                 value={d}
                 onChange={(e) => handleDigitChange(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
-                style={{
-                  ...styles.digit,
-                  borderColor: d ? 'var(--color-primary)' : 'var(--color-border)',
-                }}
+                className={`h-[52px] w-11 rounded-xl border-2 text-center text-sm font-semibold text-text-primary outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20 ${
+                  d ? 'border-primary bg-surface-container-lowest' : 'border-border-ice bg-surface-container-lowest'
+                }`}
               />
             ))}
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>New password</label>
+          <div>
+            <label className="mb-1 block text-label-small text-text-primary" htmlFor="new-password">
+              New Password
+            </label>
             <input
+              id="new-password"
               type="password"
+              className="w-full rounded-xl border border-border-ice bg-surface-container-lowest px-4 py-[12px] text-sm text-text-primary outline-none focus:border-primary focus:ring-1 focus:ring-primary"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
               minLength={8}
             />
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Confirm new password</label>
+          <div>
+            <label className="mb-1 block text-label-small text-text-primary" htmlFor="confirm-password">
+              Confirm New Password
+            </label>
             <input
+              id="confirm-password"
               type="password"
+              className="w-full rounded-xl border border-border-ice bg-surface-container-lowest px-4 py-[12px] text-sm text-text-primary outline-none focus:border-primary focus:ring-1 focus:ring-primary"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required
@@ -106,78 +127,40 @@ export default function ResetPasswordPage() {
             />
           </div>
 
-          <p style={styles.hint}>
-            Min 8 chars · uppercase · lowercase · number · special character
-          </p>
+          <ul className="space-y-xs text-left">
+            {[
+              ['Minimum 12 characters', rules.length12],
+              ['At least one uppercase letter', rules.uppercase],
+              ['At least one numeric digit', rules.digit],
+              ['At least one special character', rules.special],
+            ].map(([text, met]) => (
+              <li key={text} className={`flex items-center gap-2 text-sm ${met ? 'text-text-secondary' : 'text-outline'}`}>
+                <MaterialIcon name={met ? 'check_circle' : 'radio_button_unchecked'} size={16} fill={met} className={met ? 'text-secondary' : 'text-outline'} />
+                {text}
+              </li>
+            ))}
+          </ul>
 
-          <button type="submit" style={styles.btn} disabled={loading}>
-            {loading ? 'Resetting...' : 'Reset password'}
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-[12px] text-sm font-semibold text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            {loading ? 'Resetting…' : 'Reset password'}
+            <MaterialIcon name="arrow_forward" size={18} />
           </button>
         </form>
 
-        <p style={styles.back}>
-          <Link to="/forgot-password">Resend code</Link>
+        <p className="mt-6 text-center text-sm text-text-secondary">
+          <Link className="text-primary hover:underline" to="/forgot-password">
+            Resend code
+          </Link>
           {' · '}
-          <Link to="/login">Back to login</Link>
+          <Link className="text-primary hover:underline" to="/login">
+            Back to login
+          </Link>
         </p>
-      </div>
+      </main>
     </div>
   )
-}
-
-const styles = {
-  page: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'var(--color-bg)',
-    padding: '1rem',
-  },
-  card: {
-    background: 'var(--color-surface)',
-    border: '1px solid var(--color-border)',
-    borderRadius: '16px',
-    padding: '2.5rem',
-    width: '100%',
-    maxWidth: '420px',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-  },
-  title: { fontSize: '1.4rem', fontWeight: 600, marginBottom: '0.5rem', textAlign: 'center' },
-  sub: {
-    color: 'var(--color-text-muted)',
-    fontSize: '0.9rem',
-    marginBottom: '1.5rem',
-    textAlign: 'center',
-  },
-  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  inputs: { display: 'flex', gap: '0.6rem', justifyContent: 'center', marginBottom: '0.5rem' },
-  digit: {
-    width: '44px',
-    height: '52px',
-    textAlign: 'center',
-    fontSize: '1.4rem',
-    fontFamily: 'var(--font-mono)',
-    fontWeight: 600,
-    borderRadius: 'var(--radius)',
-    border: '2px solid',
-  },
-  field: { display: 'flex', flexDirection: 'column', gap: '0.4rem' },
-  label: { fontSize: '0.85rem', fontWeight: 500, color: 'var(--color-text-muted)' },
-  hint: { fontSize: '0.78rem', color: 'var(--color-text-dim)' },
-  btn: {
-    background: 'var(--color-primary)',
-    color: 'white',
-    padding: '0.8rem',
-    borderRadius: 'var(--radius)',
-    fontWeight: 600,
-    fontSize: '0.95rem',
-    marginTop: '0.25rem',
-  },
-  back: {
-    marginTop: '1.25rem',
-    textAlign: 'center',
-    fontSize: '0.85rem',
-    color: 'var(--color-text-muted)',
-  },
 }

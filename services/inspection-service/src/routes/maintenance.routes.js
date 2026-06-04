@@ -11,7 +11,7 @@ const v = (req, res, next) => {
 
 router.use(authenticate);
 router.get("/",  ctrl.listMaintenance);
-router.post("/", authorize("admin","inspector"), [
+router.post("/", authorize("inspector"), [
   body("extinguisherId").isUUID(),
   body("actionDate").isDate(),
   body("actionsTaken").trim().notEmpty()

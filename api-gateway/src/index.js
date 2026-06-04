@@ -29,7 +29,7 @@ app.use(cors({
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20,
   message: { error: "Too many auth attempts" } });
-const otpLimiter  = rateLimit({ windowMs: 10 * 60 * 1000, max: 5,
+const otpLimiter  = rateLimit({ windowMs: 10 * 60 * 1000, max: 30,
   message: { error: "Too many OTP attempts" } });
 
 app.use(morgan("combined"));

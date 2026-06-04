@@ -1,16 +1,14 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { statusBadgeClass } from "../lib/badges";
 import { api } from "../lib/api";
 import { useAuthStore } from "../stores/auth.store";
-import toast from "react-hot-toast";
-import { useState } from "react";
 
 export default function ExtinguisherDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const isReadOnly = user?.role === "admin";
 
   const { data: ext, isLoading } = useQuery({
     queryKey: ["extinguisher", id],
@@ -27,33 +25,27 @@ export default function ExtinguisherDetailPage() {
     queryFn: () => api.get(`/api/maintenance?extinguisherId=${id}&limit=10`).then(r => r.data)
   });
 
-  const updateMutation = useMutation({
-    mutationFn: (body) => api.patch(`/api/extinguishers/${id}`, body),
-    onSuccess: () => { qc.invalidateQueries(["extinguisher", id]); setEditing(false); toast.success("Updated!"); },
-    onError: (e) => toast.error(e.response?.data?.error || "Update failed")
-  });
-
   if (isLoading) return <div style={{ padding: "2rem", color: "var(--color-text-muted)" }}>Loading...</div>;
   if (!ext) return <div style={{ padding: "2rem" }}>Not found</div>;
 
   const isExpired = new Date(ext.expiryDate) < new Date();
-  const STATUS_COLORS = { active: "#27ae60", expired: "#e74c3c", maintenance: "#f39c12", decommissioned: "#95a5a6", missing: "#e67e22" };
 
   return (
     <div>
+      <p className="breadcrumb">Inventory <span>›</span> {ext.serialNumber}</p>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
-        <button onClick={() => navigate("/extinguishers")} style={{ background: "none", color: "var(--color-text-muted)", fontSize: "1.2rem" }}>←</button>
-        <div>
-          <h1 style={{ fontSize: "1.4rem", fontWeight: 600 }}>🧯 {ext.serialNumber}</h1>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem" }}>{ext.location}</p>
+        <button type="button" className="btn btn-ghost" onClick={() => navigate("/extinguishers")}>← Back</button>
+        <div style={{ flex: 1 }}>
+          <h1 className="page-title">{ext.serialNumber}</h1>
+          <p className="text-muted">
+            {ext.location}
+            {isReadOnly && " · read-only (admin)"}
+          </p>
         </div>
-        <span style={{
-          marginLeft: "auto", padding: "0.3rem 0.9rem", borderRadius: "20px", fontSize: "0.8rem", fontWeight: 600,
-          background: `${STATUS_COLORS[ext.status]}22`, color: STATUS_COLORS[ext.status]
-        }}>{ext.status}</span>
+        <span className={statusBadgeClass(ext.status)}>{ext.status}</span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
         {[
           ["Type", ext.type?.replace(/_/g," ")],
           ["Size", ext.size],
@@ -66,7 +58,7 @@ export default function ExtinguisherDetailPage() {
           ["Pressure", ext.pressure || "—"],
           ["Building", ext.building || "—"],
         ].map(([label, value]) => (
-          <div key={label} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", padding: "0.9rem" }}>
+          <div key={label} className="card card-body" style={{ padding: "0.9rem" }}>
             <div style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.3rem" }}>{label}</div>
             <div style={{ fontSize: "0.9rem", fontWeight: 500, textTransform: "capitalize" }}>{value}</div>
           </div>
@@ -74,14 +66,14 @@ export default function ExtinguisherDetailPage() {
       </div>
 
       {ext.notes && (
-        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", padding: "1rem", marginBottom: "1.5rem" }}>
+        <div className="card card-body" style={{ marginBottom: "1.5rem" }}>
           <div style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginBottom: "0.4rem" }}>Notes</div>
           <p style={{ fontSize: "0.9rem" }}>{ext.notes}</p>
         </div>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-lg)", padding: "1.2rem" }}>
+        <div className="card card-body">
           <h3 style={{ fontWeight: 600, marginBottom: "1rem", fontSize: "0.95rem" }}>🔍 Recent Inspections</h3>
           {inspections?.data?.length === 0 ? <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem" }}>No inspections yet</p> :
             inspections?.data?.map(ins => (
@@ -98,7 +90,7 @@ export default function ExtinguisherDetailPage() {
             ))}
         </div>
 
-        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-lg)", padding: "1.2rem" }}>
+        <div className="card card-body">
           <h3 style={{ fontWeight: 600, marginBottom: "1rem", fontSize: "0.95rem" }}>🔧 Maintenance History</h3>
           {maintenance?.data?.length === 0 ? <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem" }}>No maintenance logs yet</p> :
             maintenance?.data?.map(m => (

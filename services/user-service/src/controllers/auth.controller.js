@@ -10,14 +10,28 @@ const { storeOTP, verifyOTP } = require("../utils/otp");
 
 const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL;
 
-const sendNotification = async (type, payload) => {
+const sendNotification = async (type, payload, { required = false } = {}) => {
   try {
-    await axios.post(`${NOTIFICATION_URL}/api/notifications/send`, {
+    const { data } = await axios.post(`${NOTIFICATION_URL}/api/notifications/send`, {
       type,
       payload,
-    });
+    }, { timeout: 20000 });
+
+    if (data.devFallback) {
+      console.warn(
+        `[user-service] Email dev fallback ${type} → ${payload.email} OTP logged server-side`
+      );
+    }
+    return data;
   } catch (e) {
-    console.error("[user-service] Notification send failed:", e.message);
+    const detail = e.response?.data?.error || e.response?.data?.details || e.message;
+    console.error("[user-service] Notification send failed:", detail);
+    if (required) {
+      const err = new Error(detail || "Failed to send email");
+      err.status = e.response?.status || 503;
+      throw err;
+    }
+    return { success: false, emailSent: false, error: detail };
   }
 };
 
@@ -77,12 +91,16 @@ exports.register = async (req, res) => {
   });
 
   const otp = await storeOTP(user.id, "register");
-  await sendNotification("otp", {
-    email: user.email,
-    name: user.firstName,
-    otp,
-    purpose: "account registration",
-  });
+  const mail = await sendNotification(
+    "otp",
+    {
+      email: user.email,
+      name: user.firstName,
+      otp,
+      purpose: "account registration",
+    },
+    { required: true }
+  );
 
   await AuditLog.create({
     userId: user.id,
@@ -93,9 +111,12 @@ exports.register = async (req, res) => {
   });
 
   res.status(201).json({
-    message: "Registration successful. OTP sent to your email for verification.",
+    message: mail.emailSent
+      ? "Registration successful. OTP sent to your email for verification."
+      : "Registration successful. Check your email for the verification code.",
     userId: user.id,
     requiresOtp: true,
+    emailSent: mail.emailSent !== false,
   });
 };
 
@@ -124,45 +145,56 @@ exports.login = async (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
-  if (!user.isEmailVerified) {
-    const otp = await storeOTP(user.id, "register");
-    await sendNotification("otp", {
-      email: user.email,
-      name: user.firstName,
-      otp,
-      purpose: "account verification",
-    });
-    return res.status(403).json({
-      error: "Email not verified. A new OTP has been sent to your email.",
-      userId: user.id,
-      requiresOtp: true,
+  const otpPurpose = user.isEmailVerified ? "login" : "register";
+  const otp = await storeOTP(user.id, otpPurpose);
+  let mail = { emailSent: false };
+  try {
+    mail = await sendNotification(
+      "otp",
+      {
+        email: user.email,
+        name: user.firstName,
+        otp,
+        purpose: user.isEmailVerified ? "sign in" : "account verification",
+      },
+      { required: true }
+    );
+  } catch (e) {
+    return res.status(e.status || 503).json({
+      error: e.message || "Could not send verification email",
     });
   }
 
-  const { accessToken, refreshToken } = await issueSession(user, req);
-
   await AuditLog.create({
     userId: user.id,
-    action: "LOGIN_SUCCESS",
+    action: "LOGIN_OTP_SENT",
     status: "success",
     ipAddress: req.ip,
     userAgent: req.headers["user-agent"],
   });
 
-  res.json({
-    message: "Login successful",
-    accessToken,
-    refreshToken,
+  const payload = {
+    message: "Verification code sent to your email",
+    userId: user.id,
+    requiresOtp: true,
+    purpose: otpPurpose,
+    emailSent: mail.emailSent !== false,
     mustChangePassword: user.mustChangePassword,
-    user: sanitizeUser(user),
-  });
+  };
+
+  if (process.env.NODE_ENV !== "production" && mail.devFallback && mail.otp) {
+    payload.devOtpHint = mail.otp;
+  }
+
+  return res.status(403).json(payload);
 };
 
 // POST /api/auth/verify-otp
 exports.verifyOtp = async (req, res) => {
   const { userId, otp, purpose = "register" } = req.body;
+  const allowedPurpose = purpose === "login" ? "login" : "register";
 
-  const result = await verifyOTP(userId, purpose, otp);
+  const result = await verifyOTP(userId, allowedPurpose, otp);
   if (!result.valid) {
     return res.status(401).json({ error: result.reason });
   }

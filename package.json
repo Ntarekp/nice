@@ -7,6 +7,8 @@
     "install:all": "node scripts/install-all.js",
     "db:create": "node scripts/create-databases.js",
     "seed": "node scripts/seed-all.js",
+    "test:email": "node scripts/test-email-otp.js",
+    "test:login-otp": "node scripts/test-login-otp.js",
     "setup": "npm run db:create && npm run seed",
     "test": "node --test tests/db-smoke.test.js",
     "test:db": "node --test tests/db-smoke.test.js",

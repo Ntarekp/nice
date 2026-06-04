@@ -12,9 +12,15 @@ const v = (req, res, next) => {
 router.use(authenticate);
 router.get("/",    ctrl.list);
 router.get("/:id", ctrl.getById);
-router.post("/", [
-  body("extinguisherId").isUUID(),
-  body("scheduledDate").isISO8601().withMessage("Valid datetime required")
-], v, ctrl.schedule);
-router.patch("/:id", authorize("admin","inspector"), ctrl.update);
+router.post(
+  "/",
+  authorize("user"),
+  [
+    body("extinguisherId").isUUID(),
+    body("scheduledDate").isISO8601().withMessage("Valid datetime required"),
+  ],
+  v,
+  ctrl.schedule
+);
+router.patch("/:id", authorize("inspector"), ctrl.update);
 module.exports = router;

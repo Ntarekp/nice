@@ -246,7 +246,7 @@ async function seedInspections(users, extinguishers) {
   await sequelize.sync({ alter: true });
 
   const inspector = users["ukemuk1@gmail.com"];
-  const scheduler = users["devroom210@gmail.com"] || users.admin;
+  const scheduler = users["cabledie@gmail.com"] || users.admin;
   const ext1 = extinguishers[0];
   const ext2 = extinguishers[1];
 
@@ -322,7 +322,8 @@ async function main() {
   console.log("\n══ TWZ Fire System — Seed Demo Data ══\n");
   const users = await seedUsers();
   console.log("\n── Equipment ──\n");
-  const extinguishers = await seedEquipment(users.admin);
+  const facilityUser = users["cabledie@gmail.com"] || users.admin;
+  const extinguishers = await seedEquipment(facilityUser);
   console.log("\n── Inspections & Maintenance ──\n");
   await seedInspections(users, extinguishers);
   console.log("\n✔ Seed complete.");

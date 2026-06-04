@@ -3,35 +3,46 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth.store'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
+import MaterialIcon from '../components/MaterialIcon'
+import { LOGIN_ILLUSTRATION } from '../lib/designAssets'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const { setLoginPending, loginSuccess } = useAuthStore()
+  const { setLoginPending } = useAuthStore()
   const navigate = useNavigate()
 
   const handleLogin = async (e) => {
     e.preventDefault()
     setLoading(true)
     try {
-      const { data } = await api.post('/api/auth/login', { email, password })
-      if (data.accessToken && data.user) {
-        loginSuccess(data.user, data.accessToken, data.refreshToken)
-        toast.success('Welcome back!')
-        if (data.mustChangePassword) navigate('/change-password')
-        else navigate('/dashboard')
-        return
-      }
-      setLoginPending(data.userId)
-      toast.success('OTP sent to your email')
-      navigate('/otp', { state: { mustChangePassword: data.mustChangePassword } })
+      await api.post('/api/auth/login', { email, password })
+      toast.error('Unexpected login response — please try again')
     } catch (err) {
       const body = err.response?.data
       if (err.response?.status === 403 && body?.requiresOtp && body?.userId) {
-        setLoginPending(body.userId)
-        toast.success('OTP sent to your email')
-        navigate('/otp')
+        const purpose = body.purpose || 'login'
+        setLoginPending(body.userId, purpose)
+        toast.success(
+          body.emailSent === false
+            ? 'Email could not be sent — check server logs for the code'
+            : 'Verification code sent to your email'
+        )
+        if (import.meta.env.DEV && body.devOtpHint) {
+          console.info('[dev] OTP for', email, ':', body.devOtpHint)
+        }
+        navigate('/otp', {
+          state: {
+            mustChangePassword: body.mustChangePassword,
+            purpose,
+          },
+        })
+        return
+      }
+      if (err.response?.status === 422 && body?.errors?.length) {
+        toast.error(body.errors[0]?.msg || 'Invalid input')
         return
       }
       toast.error(body?.error || 'Login failed')
@@ -41,80 +52,167 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.logo}>
-          <span style={styles.flame}>🔥</span>
-          <div>
-            <h1 style={styles.brand}>TWZ Fire Safety</h1>
-            <p style={styles.tagline}>Equipment Management System</p>
+    <div className="flex h-screen w-full overflow-hidden bg-surface antialiased text-text-primary">
+      <div className="relative hidden items-center justify-center bg-surface-container-high p-12 lg:flex lg:w-1/2">
+        <div
+          className="absolute inset-0 z-0 bg-cover bg-center opacity-90"
+          style={{ backgroundImage: `url('${LOGIN_ILLUSTRATION}')` }}
+          role="img"
+          aria-label="Commercial facilities safety illustration"
+        />
+        <div className="absolute inset-0 z-10 bg-gradient-to-br from-primary-container/80 to-surface-tint/60" />
+        <div className="glass-panel relative z-20 w-full max-w-md rounded-xl border border-border-ice/20 p-8 shadow-lg">
+          <div className="mb-4 flex items-center gap-2">
+            <MaterialIcon name="shield" size={24} fill className="text-secondary-container" />
+            <span className="text-label-caps uppercase tracking-widest text-surface-white">
+              System Status
+            </span>
+          </div>
+          <h2 className="mb-2 text-headline-md text-surface-white">All Facilities Secure</h2>
+          <p className="mb-6 text-sm text-inverse-on-surface opacity-80">
+            Global Command Center is actively monitoring compliance checkpoints across your regions.
+          </p>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-lg bg-surface-container-lowest/10 p-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-secondary-container" />
+                <span className="text-sm text-surface-white">Network Integrity</span>
+              </div>
+              <span className="text-sm font-semibold text-surface-white">100%</span>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-surface-container-lowest/10 p-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-secondary-container" />
+                <span className="text-sm text-surface-white">Active Inspections</span>
+              </div>
+              <span className="text-sm font-semibold text-surface-white">24</span>
+            </div>
           </div>
         </div>
+      </div>
 
-        <h2 style={styles.title}>Sign in to your account</h2>
-        <p style={styles.subtitle}>Verified accounts sign in directly; unverified accounts receive an OTP by email.</p>
+      <div className="relative flex w-full items-center justify-center bg-surface-bright px-5 lg:w-1/2 lg:px-10">
+        <div
+          className="absolute inset-0 z-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'radial-gradient(#172B4D 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+        <div className="glass-panel relative z-10 w-full max-w-[480px] rounded-xl border border-border-ice p-8 shadow-sm lg:p-12">
+          <div className="mb-8 flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
+              <MaterialIcon name="local_fire_department" size={22} fill className="text-on-primary" />
+            </div>
+            <h1 className="text-headline-md font-extrabold tracking-tight text-primary">
+              PyroGuard Pro
+            </h1>
+          </div>
 
-        <form onSubmit={handleLogin} style={styles.form}>
-          <div style={styles.field}>
-            <label style={styles.label}>Email Address</label>
-            <input
-              type="email" value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com" required autoFocus
-            />
+          <div className="mb-8">
+            <h2 className="mb-1 text-headline-lg text-primary">Welcome Back</h2>
+            <p className="text-base text-text-secondary">
+              Sign in to access your command center.
+            </p>
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password" value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••" required
-            />
-          </div>
-          <div style={{ textAlign: 'right', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-            <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: '#e74c3c' }}>
-              Forgot password?
-            </Link>
-          </div>
-          <button type="submit" style={styles.btn} disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
 
-        <p style={styles.notice}>
-          🔐 New registrations must verify email with a one-time password.
-        </p>
+          <form className="space-y-6" onSubmit={handleLogin}>
+            <div>
+              <label
+                className="mb-2 ml-1 block text-label-caps uppercase text-text-secondary"
+                htmlFor="email"
+              >
+                Corporate Email
+              </label>
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                  <MaterialIcon name="mail" size={22} className="text-outline" />
+                </div>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  className="auth-input block w-full rounded-xl border border-border-ice bg-surface-container-lowest py-3 pl-12 pr-4 text-sm text-primary placeholder:text-outline-variant focus:outline-none"
+                  placeholder="executive@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                className="mb-2 ml-1 block text-label-caps uppercase text-text-secondary"
+                htmlFor="password"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+                  <MaterialIcon name="lock" size={22} className="text-outline" />
+                </div>
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="auth-input block w-full rounded-xl border border-border-ice bg-surface-container-lowest py-3 pl-12 pr-12 text-sm text-primary placeholder:text-outline-variant focus:outline-none"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center pr-4 text-outline transition-colors hover:text-primary focus:outline-none"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label="Toggle password visibility"
+                >
+                  <MaterialIcon name={showPassword ? 'visibility' : 'visibility_off'} size={22} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <input className="auth-checkbox" id="remember-me" name="remember-me" type="checkbox" />
+                <label
+                  className="cursor-pointer select-none text-sm text-text-secondary"
+                  htmlFor="remember-me"
+                >
+                  Remember this device
+                </label>
+              </div>
+              <Link
+                className="text-label-small text-primary transition-all hover:text-primary-container hover:underline"
+                to="/forgot-password"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
+            <div className="pt-4">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-primary px-6 py-3 text-sm font-semibold text-on-primary shadow-sm transition-all hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/20 active:scale-[0.98] disabled:opacity-60"
+              >
+                {loading ? 'Signing in…' : 'Secure Sign In'}
+                <MaterialIcon name="arrow_forward" size={20} />
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-8 text-center">
+            <p className="text-label-small text-outline">
+              Protected by Enterprise-Grade Encryption
+              <br />
+              © 2026 Kpntare Safety
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )
-}
-
-const styles = {
-  page: {
-    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0f1117 0%, #1a1d27 50%, #0f1117 100%)',
-    padding: '1rem'
-  },
-  card: {
-    background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-    borderRadius: '16px', padding: '2.5rem', width: '100%', maxWidth: '420px',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
-  },
-  logo: { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' },
-  flame: { fontSize: '2.5rem' },
-  brand: { fontSize: '1.3rem', fontWeight: 600, color: '#f0f0f0' },
-  tagline: { fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '2px' },
-  title: { fontSize: '1.3rem', fontWeight: 600, marginBottom: '0.3rem' },
-  subtitle: { fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1.8rem' },
-  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  field: { display: 'flex', flexDirection: 'column', gap: '0.4rem' },
-  label: { fontSize: '0.85rem', fontWeight: 500, color: 'var(--color-text-muted)' },
-  btn: {
-    background: 'var(--color-primary)', color: 'white', padding: '0.8rem',
-    borderRadius: 'var(--radius)', fontWeight: 600, fontSize: '0.95rem',
-    transition: 'background 0.2s', marginTop: '0.5rem'
-  },
-  notice: {
-    marginTop: '1.5rem', fontSize: '0.8rem', color: 'var(--color-text-dim)',
-    textAlign: 'center', padding: '0.75rem', background: 'rgba(255,255,255,0.03)',
-    borderRadius: 'var(--radius)', border: '1px solid var(--color-border)'
-  }
 }

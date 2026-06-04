@@ -8,19 +8,42 @@ export const useAuthStore = create(
       token: null,
       refreshToken: null,
       pendingUserId: null,
+      pendingOtpPurpose: 'login',
 
-      setLoginPending: (userId) => set({ pendingUserId: userId }),
+      setLoginPending: (userId, purpose = 'login') =>
+        set({ pendingUserId: userId, pendingOtpPurpose: purpose }),
 
       loginSuccess: (user, accessToken, refreshToken) =>
-        set({ user, token: accessToken, refreshToken, pendingUserId: null }),
+        set({
+          user,
+          token: accessToken,
+          refreshToken,
+          pendingUserId: null,
+          pendingOtpPurpose: 'login',
+        }),
 
-      updateUser: (updates) => set(s => ({ user: { ...s.user, ...updates } })),
+      updateUser: (updates) => set((s) => ({ user: { ...s.user, ...updates } })),
 
       logout: () => {
-        set({ user: null, token: null, refreshToken: null, pendingUserId: null })
+        set({
+          user: null,
+          token: null,
+          refreshToken: null,
+          pendingUserId: null,
+          pendingOtpPurpose: 'login',
+        })
         localStorage.removeItem('auth-storage')
-      }
+      },
     }),
-    { name: 'auth-storage', partialize: s => ({ user: s.user, token: s.token, refreshToken: s.refreshToken }) }
+    {
+      name: 'auth-storage',
+      partialize: (s) => ({
+        user: s.user,
+        token: s.token,
+        refreshToken: s.refreshToken,
+        pendingUserId: s.pendingUserId,
+        pendingOtpPurpose: s.pendingOtpPurpose,
+      }),
+    }
   )
 )

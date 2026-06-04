@@ -7,13 +7,19 @@ const EQUIPMENT_URL = process.env.EQUIPMENT_SERVICE_URL;
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL;
 
 exports.schedule = async (req, res) => {
+  if (req.user.role !== "user") {
+    return res.status(403).json({ error: "Only facility users can request inspections" });
+  }
+
   const { extinguisherId, scheduledDate, type, assignedInspector, notes } = req.body;
 
   try {
     await axios.get(`${EQUIPMENT_URL}/api/extinguishers/${extinguisherId}`, {
       headers: { Authorization: req.headers.authorization },
     });
-  } catch {
+  } catch (err) {
+    const status = err.response?.status;
+    if (status === 403) return res.status(403).json({ error: "Access denied to this extinguisher" });
     return res.status(404).json({ error: "Extinguisher not found" });
   }
 
@@ -65,7 +71,9 @@ exports.list = async (req, res) => {
   if (status) where.status = status;
   if (type) where.type = type;
   if (extinguisherId) where.extinguisherId = extinguisherId;
+  if (req.user.role === "user") where.scheduledBy = req.user.sub;
   if (req.user.role === "inspector") where.assignedInspector = req.user.sub;
+  if (req.user.role === "admin" && req.query.ownerId) where.scheduledBy = req.query.ownerId;
   if (from || to) {
     where.scheduledDate = {};
     if (from) where.scheduledDate[Op.gte] = new Date(from);
@@ -90,15 +98,30 @@ exports.getById = async (req, res) => {
     include: [{ model: MaintenanceLog, as: "maintenanceLogs" }],
   });
   if (!inspection) return res.status(404).json({ error: "Inspection not found" });
+
+  if (
+    req.user.role === "inspector" &&
+    inspection.assignedInspector &&
+    inspection.assignedInspector !== req.user.sub
+  ) {
+    return res.status(403).json({ error: "Not your assigned inspection" });
+  }
+  if (req.user.role === "user" && inspection.scheduledBy !== req.user.sub) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
   res.json(inspection);
 };
 
 exports.update = async (req, res) => {
+  if (req.user.role !== "inspector") {
+    return res.status(403).json({ error: "Only inspectors can update inspections" });
+  }
+
   const inspection = await Inspection.findByPk(req.params.id);
   if (!inspection) return res.status(404).json({ error: "Inspection not found" });
 
   if (
-    req.user.role === "inspector" &&
     inspection.assignedInspector &&
     inspection.assignedInspector !== req.user.sub
   ) {

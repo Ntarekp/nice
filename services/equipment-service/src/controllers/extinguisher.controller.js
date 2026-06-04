@@ -1,7 +1,18 @@
 const { Extinguisher } = require("../models");
 const { Op, fn, col } = require("sequelize");
+const {
+  canCreate,
+  canUpdate,
+  canDelete,
+  canRead,
+  applyListScope,
+} = require("../utils/access");
 
 exports.create = async (req, res) => {
+  if (!canCreate(req.user)) {
+    return res.status(403).json({ error: "Only facility users can register extinguishers" });
+  }
+
   const {
     serialNumber,
     location,
@@ -70,10 +81,13 @@ exports.list = async (req, res) => {
     ];
   }
 
+  applyListScope(where, req.user, req.query);
+
   const today = new Date().toISOString().split("T")[0];
+  const scopeForExpiry = { ...where };
   await Extinguisher.update(
     { status: "expired" },
-    { where: { expiryDate: { [Op.lt]: today }, status: "active" } }
+    { where: { ...scopeForExpiry, expiryDate: { [Op.lt]: today }, status: "active" } }
   );
 
   const { count, rows } = await Extinguisher.findAndCountAll({
@@ -89,15 +103,36 @@ exports.list = async (req, res) => {
   });
 };
 
+exports.getBySerial = async (req, res) => {
+  const ext = await Extinguisher.findOne({
+    where: { serialNumber: req.params.serialNumber },
+  });
+  if (!ext) return res.status(404).json({ error: "Extinguisher not found" });
+  if (!canRead(ext, req.user)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  res.json(ext);
+};
+
 exports.getById = async (req, res) => {
   const ext = await Extinguisher.findByPk(req.params.id);
   if (!ext) return res.status(404).json({ error: "Extinguisher not found" });
+  if (!canRead(ext, req.user)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
   res.json(ext);
 };
 
 exports.update = async (req, res) => {
+  if (!canUpdate(req.user)) {
+    return res.status(403).json({ error: "Only inspectors can update extinguisher records" });
+  }
+
   const ext = await Extinguisher.findByPk(req.params.id);
   if (!ext) return res.status(404).json({ error: "Extinguisher not found" });
+  if (!canRead(ext, req.user)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
 
   const allowed = [
     "location",
@@ -123,36 +158,34 @@ exports.update = async (req, res) => {
 };
 
 exports.remove = async (req, res) => {
-  const ext = await Extinguisher.findByPk(req.params.id);
-  if (!ext) return res.status(404).json({ error: "Extinguisher not found" });
-
-  if (req.query.hard === "true" && req.user.role === "admin") {
-    await ext.destroy();
-    return res.json({ message: "Extinguisher permanently deleted" });
+  if (!canDelete(req.user)) {
+    return res.status(403).json({ error: "Extinguisher records cannot be deleted" });
   }
-
-  await ext.update({ status: "decommissioned" });
-  res.json({ message: "Extinguisher decommissioned" });
 };
 
 exports.summary = async (req, res) => {
+  const where = {};
+  applyListScope(where, req.user, req.query);
+
   const today = new Date().toISOString().split("T")[0];
   const thirtyDays = new Date();
   thirtyDays.setDate(thirtyDays.getDate() + 30);
 
   const [total, active, expired, maintenance, expiringSoon, byType] = await Promise.all([
-    Extinguisher.count(),
-    Extinguisher.count({ where: { status: "active" } }),
-    Extinguisher.count({ where: { status: "expired" } }),
-    Extinguisher.count({ where: { status: "maintenance" } }),
+    Extinguisher.count({ where }),
+    Extinguisher.count({ where: { ...where, status: "active" } }),
+    Extinguisher.count({ where: { ...where, status: "expired" } }),
+    Extinguisher.count({ where: { ...where, status: "maintenance" } }),
     Extinguisher.count({
       where: {
+        ...where,
         expiryDate: { [Op.between]: [today, thirtyDays.toISOString().split("T")[0]] },
         status: "active",
       },
     }),
     Extinguisher.findAll({
       attributes: ["type", [fn("COUNT", col("id")), "count"]],
+      where,
       group: ["type"],
       raw: true,
     }),

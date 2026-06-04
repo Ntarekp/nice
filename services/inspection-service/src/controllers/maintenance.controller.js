@@ -5,6 +5,10 @@ const { Op } = require("sequelize");
 const EQUIPMENT_URL = process.env.EQUIPMENT_SERVICE_URL;
 
 exports.logMaintenance = async (req, res) => {
+  if (req.user.role !== "inspector") {
+    return res.status(403).json({ error: "Only inspectors can log maintenance" });
+  }
+
   const {
     extinguisherId,
     inspectionId,
@@ -50,6 +54,21 @@ exports.listMaintenance = async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
   const offset = (page - 1) * limit;
   const { extinguisherId, from, to } = req.query;
+
+  if (req.user.role === "user") {
+    if (!extinguisherId) {
+      return res.status(400).json({ error: "extinguisherId is required" });
+    }
+    try {
+      await axios.get(`${EQUIPMENT_URL}/api/extinguishers/${extinguisherId}`, {
+        headers: { Authorization: req.headers.authorization },
+      });
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 403) return res.status(403).json({ error: "Access denied" });
+      return res.status(404).json({ error: "Extinguisher not found" });
+    }
+  }
 
   const where = {};
   if (extinguisherId) where.extinguisherId = extinguisherId;

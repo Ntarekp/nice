@@ -24,13 +24,17 @@ export default function MaintenancePage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+      <p className="breadcrumb">Operations <span>›</span> Maintenance</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
         <div>
-          <h1 style={{ fontSize: "1.4rem", fontWeight: 600 }}>🔧 Maintenance Logs</h1>
-          <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem" }}>{data?.pagination?.total ?? 0} entries</p>
+          <h1 className="page-title">Maintenance Logs</h1>
+          <p style={{ color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+            {data?.pagination?.total ?? 0} entries
+            {user?.role === "admin" && " · read-only"}
+          </p>
         </div>
-        {["admin","inspector"].includes(user?.role) && (
-          <button onClick={() => setShowForm(true)} style={{ background: "var(--color-primary)", color: "white", padding: "0.6rem 1.2rem", borderRadius: "var(--radius)", fontWeight: 600 }}>
+        {user?.role === "inspector" && (
+          <button type="button" className="btn btn-primary" onClick={() => setShowForm(true)}>
             + Log Activity
           </button>
         )}

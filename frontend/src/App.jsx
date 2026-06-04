@@ -8,6 +8,7 @@ import ResetPasswordPage from './pages/ResetPassword'
 import ChangePasswordPage from './pages/ChangePassword'
 import DashboardPage from './pages/Dashboard'
 import ExtinguishersPage from './pages/Extinguishers'
+import RegisterEquipmentPage from './pages/RegisterEquipment'
 import ExtinguisherDetailPage from './pages/ExtinguisherDetail'
 import InspectionsPage from './pages/Inspections'
 import MaintenancePage from './pages/Maintenance'
@@ -36,10 +37,11 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="extinguishers" element={<ExtinguishersPage />} />
+        <Route path="register" element={<ProtectedRoute roles={['user']}><RegisterEquipmentPage /></ProtectedRoute>} />
         <Route path="extinguishers/:id" element={<ExtinguisherDetailPage />} />
         <Route path="inspections" element={<InspectionsPage />} />
         <Route path="maintenance" element={<MaintenancePage />} />
-        <Route path="reports" element={<ReportsPage />} />
+        <Route path="reports" element={<ProtectedRoute roles={['admin', 'inspector', 'user']}><ReportsPage /></ProtectedRoute>} />
         <Route path="users" element={<ProtectedRoute roles={['admin']}><UsersPage /></ProtectedRoute>} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>

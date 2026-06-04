@@ -1,9 +1,7 @@
 const { User, AuditLog } = require("../models");
 const { hashPassword, generateTempPassword } = require("../utils/password");
-const axios = require("axios");
+const { sendNotification } = require("../utils/notifications");
 const { Op } = require("sequelize");
-
-const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL;
 
 const sanitizeUser = (user) => {
   const { password, ...safe } = user.toJSON();
@@ -31,31 +29,32 @@ exports.createUser = async (req, res) => {
     isEmailVerified: true,
   });
 
-  try {
-    await axios.post(`${NOTIFICATION_URL}/api/notifications/send`, {
-      type: "welcome",
-      payload: {
-        email: user.email,
-        name: user.firstName,
-        tempPassword,
-        role: user.role,
-      },
-    });
-  } catch (e) {
-    console.error("[user-service] Welcome email failed:", e.message);
-  }
+  const mail = await sendNotification("welcome", {
+    email: user.email,
+    name: `${user.firstName} ${user.lastName}`.trim(),
+    tempPassword,
+    role: user.role,
+  });
 
   await AuditLog.create({
     userId: req.user.sub,
     action: "USER_CREATED",
     resource: "users",
     resourceId: user.id,
-    newValues: { email: user.email, role: user.role },
+    newValues: { email: user.email, role: user.role, welcomeEmailSent: mail.emailSent !== false },
   });
 
+  const emailSent = mail.emailSent !== false;
   res.status(201).json({
-    message: "User created. Temporary password sent to email.",
+    message: emailSent
+      ? "User created. Welcome email with temporary password sent."
+      : "User created, but the welcome email could not be sent. Check notification-service logs.",
+    emailSent,
+    emailError: emailSent ? undefined : mail.error,
     user: sanitizeUser(user),
+    ...(process.env.NODE_ENV !== "production" && mail.devFallback
+      ? { devPasswordHint: tempPassword }
+      : {}),
   });
 };
 

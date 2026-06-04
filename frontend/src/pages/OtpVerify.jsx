@@ -3,16 +3,20 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../stores/auth.store'
 import { api } from '../lib/api'
 import toast from 'react-hot-toast'
+import MaterialIcon from '../components/MaterialIcon'
 
 export default function OtpPage() {
   const [digits, setDigits] = useState(['', '', '', '', '', ''])
   const [loading, setLoading] = useState(false)
   const refs = useRef([])
-  const { pendingUserId, loginSuccess } = useAuthStore()
+  const { pendingUserId, pendingOtpPurpose, loginSuccess } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
+  const purpose = location.state?.purpose || pendingOtpPurpose || 'login'
 
-  useEffect(() => { if (!pendingUserId) navigate('/login') }, [])
+  useEffect(() => {
+    if (!pendingUserId) navigate('/login')
+  }, [pendingUserId, navigate])
 
   const handleChange = (i, val) => {
     if (!/^\d?$/.test(val)) return
@@ -39,7 +43,11 @@ export default function OtpPage() {
     if (otp.length !== 6) return toast.error('Enter all 6 digits')
     setLoading(true)
     try {
-      const { data } = await api.post('/api/auth/verify-otp', { userId: pendingUserId, otp })
+      const { data } = await api.post('/api/auth/verify-otp', {
+        userId: pendingUserId,
+        otp,
+        purpose,
+      })
       loginSuccess(data.user, data.accessToken, data.refreshToken)
       toast.success('Welcome!')
       if (data.mustChangePassword || location.state?.mustChangePassword) {
@@ -48,7 +56,14 @@ export default function OtpPage() {
         navigate('/dashboard')
       }
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Invalid OTP')
+      const body = err.response?.data
+      if (err.response?.status === 422 && body?.errors?.length) {
+        toast.error(body.errors[0]?.msg || 'Enter a valid 6-digit code')
+      } else if (err.response?.status === 429) {
+        toast.error(body?.error || 'Too many attempts — wait a few minutes')
+      } else {
+        toast.error(body?.error || 'Invalid OTP')
+      }
       setDigits(['', '', '', '', '', ''])
       refs.current[0]?.focus()
     } finally {
@@ -57,53 +72,57 @@ export default function OtpPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={{ fontSize: '2.5rem', marginBottom: '1rem', textAlign: 'center' }}>📧</div>
-        <h2 style={styles.title}>Check your email</h2>
-        <p style={styles.sub}>We sent a 6-digit code. It expires in 10 minutes.</p>
+    <div className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-surface-bright p-4 md:p-8">
+      <div className="pointer-events-none absolute left-[-10%] top-[-10%] h-[40vw] w-[40vw] rounded-full bg-primary-fixed/20 blur-[100px]" />
+      <div className="pointer-events-none absolute bottom-[-10%] right-[-10%] h-[30vw] w-[30vw] rounded-full bg-secondary-fixed/20 blur-[100px]" />
 
-        <div style={styles.inputs} onPaste={handlePaste}>
+      <main className="relative z-10 w-full max-w-[420px] rounded-xl border border-border-ice bg-surface-white/90 p-8 text-center shadow-lg backdrop-blur-md md:p-12">
+        <div className="mb-6 flex justify-center">
+          <MaterialIcon name="mark_email_read" size={40} fill className="text-primary" />
+        </div>
+        <h2 className="mb-1 text-headline-md text-text-primary">Check your email</h2>
+        <p className="mb-8 text-sm text-text-secondary">
+          We sent a 6-digit code. It expires in 10 minutes.
+        </p>
+
+        <div className="mb-8 flex justify-center gap-2" onPaste={handlePaste}>
           {digits.map((d, i) => (
-            <input key={i} ref={el => refs.current[i] = el}
-              type="text" inputMode="numeric" maxLength={1}
-              value={d} onChange={e => handleChange(i, e.target.value)}
-              onKeyDown={e => handleKeyDown(i, e)}
-              style={{ ...styles.digit, borderColor: d ? 'var(--color-primary)' : 'var(--color-border)' }}
+            <input
+              key={i}
+              ref={(el) => {
+                refs.current[i] = el
+              }}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={d}
+              onChange={(e) => handleChange(i, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              className={`h-[54px] w-11 rounded-xl border-2 text-center text-lg font-bold text-text-primary outline-none transition-colors focus:border-primary ${
+                d ? 'border-primary' : 'border-border-ice'
+              }`}
             />
           ))}
         </div>
 
-        <button onClick={handleVerify} style={styles.btn} disabled={loading}>
-          {loading ? 'Verifying...' : 'Verify OTP'}
+        <button
+          type="button"
+          onClick={handleVerify}
+          disabled={loading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-[12px] text-sm font-semibold text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-60"
+        >
+          {loading ? 'Verifying…' : 'Verify OTP'}
+          <MaterialIcon name="arrow_forward" size={18} />
         </button>
-        <p style={styles.back} onClick={() => navigate('/login')}>← Back to login</p>
-      </div>
+
+        <button
+          type="button"
+          className="mt-6 text-sm text-text-secondary transition-colors hover:text-primary"
+          onClick={() => navigate('/login')}
+        >
+          ← Back to login
+        </button>
+      </main>
     </div>
   )
-}
-
-const styles = {
-  page: {
-    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'var(--color-bg)', padding: '1rem'
-  },
-  card: {
-    background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-    borderRadius: '16px', padding: '2.5rem', width: '100%', maxWidth: '380px',
-    textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
-  },
-  title: { fontSize: '1.4rem', fontWeight: 600, marginBottom: '0.5rem' },
-  sub: { color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: '2rem' },
-  inputs: { display: 'flex', gap: '0.7rem', justifyContent: 'center', marginBottom: '2rem' },
-  digit: {
-    width: '46px', height: '54px', textAlign: 'center', fontSize: '1.5rem',
-    fontFamily: 'var(--font-mono)', fontWeight: 600, borderRadius: 'var(--radius)',
-    border: '2px solid', transition: 'border-color 0.2s'
-  },
-  btn: {
-    width: '100%', background: 'var(--color-primary)', color: 'white',
-    padding: '0.8rem', borderRadius: 'var(--radius)', fontWeight: 600, fontSize: '0.95rem'
-  },
-  back: { marginTop: '1rem', color: 'var(--color-text-muted)', fontSize: '0.85rem', cursor: 'pointer' }
 }

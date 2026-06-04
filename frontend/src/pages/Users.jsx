@@ -18,7 +18,20 @@ export default function UsersPage() {
 
   const createMutation = useMutation({
     mutationFn: (body) => api.post("/api/users", body),
-    onSuccess: () => { qc.invalidateQueries(["users"]); setShowForm(false); setForm({ firstName:"",lastName:"",email:"",role:"user",phone:"",department:"" }); toast.success("User created! Temp password sent to email."); },
+    onSuccess: (res) => {
+      qc.invalidateQueries(["users"])
+      setShowForm(false)
+      setForm({ firstName: "", lastName: "", email: "", role: "user", phone: "", department: "" })
+      const data = res?.data
+      if (data?.emailSent === false) {
+        toast.error(data?.message || data?.emailError || "User created but welcome email failed")
+        if (import.meta.env.DEV && data?.devPasswordHint) {
+          console.info("[dev] Temporary password for", data.user?.email, ":", data.devPasswordHint)
+        }
+      } else {
+        toast.success(data?.message || "User created! Welcome email sent with temporary password.")
+      }
+    },
     onError: (e) => toast.error(e.response?.data?.error || "Failed to create user")
   });
 

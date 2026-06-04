@@ -37,7 +37,7 @@ router.post(
   "/verify-otp",
   [
     body("userId").isUUID(),
-    body("otp").isLength({ min: 6, max: 6 }).isNumeric(),
+    body("otp").trim().isLength({ min: 6, max: 6 }).matches(/^\d{6}$/),
     body("purpose").optional().isIn(["register", "login"]),
   ],
   validate,
@@ -71,7 +71,7 @@ router.post(
   "/reset-password",
   [
     body("email").isEmail().normalizeEmail(),
-    body("otp").isLength({ min: 6, max: 6 }).isNumeric(),
+    body("otp").trim().isLength({ min: 6, max: 6 }).matches(/^\d{6}$/),
     body("newPassword").isLength({ min: 8 }),
   ],
   validate,

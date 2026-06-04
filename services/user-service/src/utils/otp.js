@@ -29,7 +29,14 @@ const storeOTP = async (userId, purpose) => {
   return otp;
 };
 
+const normalizeOtp = (value) => String(value ?? "").replace(/\D/g, "").trim();
+
 const verifyOTP = async (userId, purpose, submitted) => {
+  const code = normalizeOtp(submitted);
+  if (code.length !== 6) {
+    return { valid: false, reason: "Invalid OTP" };
+  }
+
   const record = await OtpCode.findOne({
     where: { userId, purpose, isUsed: false },
     order: [["createdAt", "DESC"]],
@@ -39,17 +46,18 @@ const verifyOTP = async (userId, purpose, submitted) => {
     return { valid: false, reason: "OTP expired or not found" };
   }
 
-  if (new Date() > record.expiresAt) {
+  if (new Date() > new Date(record.expiresAt)) {
     await record.update({ isUsed: true });
     return { valid: false, reason: "OTP expired or not found" };
   }
 
-  if (record.otpCode !== submitted) {
+  const stored = normalizeOtp(record.otpCode);
+  if (stored !== code) {
     return { valid: false, reason: "Invalid OTP" };
   }
 
   await record.update({ isUsed: true });
-  return { valid: true };
+  return { valid: true, record };
 };
 
 const invalidateOTP = async (userId, purpose) => {

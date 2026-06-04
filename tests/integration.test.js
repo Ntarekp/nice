@@ -20,9 +20,37 @@ let refreshToken;
 let extinguisherId;
 
 async function login() {
-  const { data } = await axios.post(`${USER_URL}/api/auth/login`, {
-    email: TEST_EMAIL,
-    password: TEST_PASSWORD,
+  const email = process.env.TEST_EMAIL || TEST_EMAIL;
+  let loginRes;
+  try {
+    await axios.post(`${USER_URL}/api/auth/login`, {
+      email,
+      password: TEST_PASSWORD,
+    });
+    throw new Error("Expected login to require OTP (403)");
+  } catch (err) {
+    loginRes = err.response;
+  }
+  assert.equal(loginRes?.status, 403, "login should return 403 with OTP required");
+  const { userId, purpose, devOtpHint } = loginRes.data;
+  assert.ok(userId, "login should return userId");
+  assert.equal(purpose, "login");
+
+  let otp = devOtpHint;
+  if (!otp) {
+    const { OtpCode } = require(path.join(__dirname, "../services/user-service/src/models"));
+    const record = await OtpCode.findOne({
+      where: { userId, purpose: "login", isUsed: false },
+      order: [["createdAt", "DESC"]],
+    });
+    assert.ok(record, "OTP record should exist in database");
+    otp = record.otpCode;
+  }
+
+  const { data } = await axios.post(`${USER_URL}/api/auth/verify-otp`, {
+    userId,
+    otp: String(otp),
+    purpose: "login",
   });
   accessToken = data.accessToken;
   refreshToken = data.refreshToken;
@@ -65,17 +93,17 @@ describe("TWZ Fire System — Phase 2/3 Integration", () => {
     }
   });
 
-  it("login returns JWT for verified user", async () => {
+  it("login + verify-otp returns JWT for verified user", async () => {
     const data = await login();
     assert.ok(data.accessToken);
     assert.ok(data.refreshToken);
-    assert.equal(data.user.email, TEST_EMAIL.toLowerCase());
+    assert.equal(data.user.email, email.toLowerCase());
     assert.ok(["admin", "inspector", "user"].includes(data.user.role));
   });
 
   it("GET /api/users/me", async () => {
     const { data } = await axios.get(`${USER_URL}/api/users/me`, { headers: auth() });
-    assert.equal(data.email, TEST_EMAIL.toLowerCase());
+    assert.equal(data.email, (process.env.TEST_EMAIL || TEST_EMAIL).toLowerCase());
   });
 
   it("POST refresh-token rotates tokens", async () => {
@@ -140,12 +168,12 @@ describe("TWZ Fire System — Phase 2/3 Integration", () => {
   });
 
   it("admin can list users", async () => {
-    if ((await login()).user.role !== "admin") {
-      const adminLogin = await axios.post(`${USER_URL}/api/auth/login`, {
-        email: "devroom210@gmail.com",
-        password: TEST_PASSWORD,
-      });
-      accessToken = adminLogin.data.accessToken;
+    const session = await login();
+    if (session.user.role !== "admin") {
+      const prevEmail = TEST_EMAIL;
+      process.env.TEST_EMAIL = "devroom210@gmail.com";
+      await login();
+      process.env.TEST_EMAIL = prevEmail;
     }
     try {
       const { data } = await axios.get(`${USER_URL}/api/users`, {
