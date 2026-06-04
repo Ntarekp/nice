@@ -6,6 +6,7 @@
   "scripts": {
     "install:all": "node scripts/install-all.js",
     "db:create": "node scripts/create-databases.js",
+    "db:dump": "node scripts/dump-databases.js",
     "seed": "node scripts/seed-all.js",
     "users:cleanup": "node scripts/cleanup-demo-users.js",
     "test:email": "node scripts/test-email-otp.js",

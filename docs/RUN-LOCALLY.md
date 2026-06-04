@@ -58,6 +58,16 @@ npm test                  # database smoke (no services required)
 npm run test:integration  # HTTP tests — run while `npm run dev` is active
 ```
 
+## Database dumps
+
+SQL backups of all five databases (schema + data):
+
+```bash
+npm run db:dump
+```
+
+Files are written to [`dumps/`](../dumps/) — see [`dumps/README.md`](../dumps/README.md) for restore instructions.
+
 ## Database diagram
 
 Entity-relationship model (DBML) for all Sequelize tables and five PostgreSQL databases:
